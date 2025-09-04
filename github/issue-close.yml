@@ -1,29 +1,33 @@
 ---
-name: Auto Close Fire-Bot Tickets
+name: Auto Close User Issues
 
 "on":
   workflow_dispatch:
     inputs:
+      user:
+        description: "Username whose issues should be closed"
+        required: true
+        type: string
       dry_run:
         description: "Run in dry-run mode (don't actually close/mark issues)"
         required: false
         default: "false"
         type: boolean
       days:
-        description: "Number of days to look back for old fire-bot issues"
+        description: "Number of days to look back for old user issues"
         required: false
         default: "10"
         type: string
 
 jobs:
-  auto-close-firebot-tickets:
+  auto-close-user-issues:
     runs-on: ubuntu-latest
     permissions:
       issues: write
       contents: read
 
     steps:
-      - name: Auto Close Fire-Bot Tickets
+      - name: Auto Close User Issues
         uses: actions/github-script@v7
         with:
           script: |
@@ -31,34 +35,41 @@ jobs:
             const isDryRun = context.eventName === 'workflow_dispatch' &&
               '${{ github.event.inputs.dry_run }}' === 'true';
             
+            // Get the user from input
+            const user = '${{ github.event.inputs.user }}';
+            if (!user) {
+              throw new Error('User input parameter is required');
+            }
+            
             // For scheduled runs, use 10 days; for manual runs, use the input
             const daysBack = context.eventName === 'schedule' ? 10 : parseInt('${{ github.event.inputs.days }}') || 10;
 
             console.log(`Running in ${isDryRun ? 'DRY-RUN' : 'LIVE'} mode`);
+            console.log(`Target user: ${user}`);
 
             // Calculate date thresholds (daysBack days ago)
             const thresholdDate = new Date();
             thresholdDate.setDate(thresholdDate.getDate() - daysBack);
             const thresholdDateISO = thresholdDate.toISOString();
 
-            console.log(`Looking for fire-bot issues older than: ` +
+            console.log(`Looking for ${user} issues older than: ` +
               `${thresholdDateISO} (${daysBack} days ago)`);
 
-            // Search for all issues created by fire-bot user
-            console.log('Searching for fire-bot issues...');
+            // Search for all issues created by the specified user
+            console.log(`Searching for ${user} issues...`);
 
-            let allFireBotIssues = [];
+            let allUserIssues = [];
             let page = 1;
             const perPage = 100;
 
-            // Fetch all fire-bot issues (both open and closed)
+            // Fetch all user issues (both open and closed)
             while (true) {
               try {
                 const { data: issues } = await github.rest.issues.listForRepo({
                   owner,
                   repo,
                   state: 'all',
-                  creator: 'fire-bot',
+                  creator: user,
                   per_page: perPage,
                   page: page,
                   sort: 'created',
@@ -69,7 +80,7 @@ jobs:
                   break;
                 }
 
-                allFireBotIssues = allFireBotIssues.concat(
+                allUserIssues = allUserIssues.concat(
                   issues.filter(issue => !issue.pull_request)
                 );
                 page++;
@@ -84,21 +95,21 @@ jobs:
               }
             }
 
-            console.log(`Found ${allFireBotIssues.length} total fire-bot issues`);
+            console.log(`Found ${allUserIssues.length} total ${user} issues`);
 
             // Filter issues older than specified days
-            const oldFireBotIssues = allFireBotIssues.filter(issue =>
+            const oldUserIssues = allUserIssues.filter(issue =>
               new Date(issue.created_at) < thresholdDate
             );
 
-            console.log(`Found ${oldFireBotIssues.length} ` +
-              `fire-bot issues older than ${daysBack} days`);
+            console.log(`Found ${oldUserIssues.length} ` +
+              `${user} issues older than ${daysBack} days`);
 
             // Separate open and closed issues
-            const openOldIssues = oldFireBotIssues.filter(
+            const openOldIssues = oldUserIssues.filter(
               issue => issue.state === 'open'
             );
-            const closedOldIssues = oldFireBotIssues.filter(issue =>
+            const closedOldIssues = oldUserIssues.filter(issue =>
               issue.state === 'closed' && new Date(issue.closed_at) < thresholdDate
             );
 
@@ -110,7 +121,7 @@ jobs:
             let markedForDeletionCount = 0;
             let errors = [];
 
-            // Close open fire-bot issues older than 10 days
+            // Close open user issues older than specified days
             for (const issue of openOldIssues) {
               try {
                 console.log(`Processing open issue #${issue.number}: ` +
@@ -126,10 +137,10 @@ jobs:
                   });
 
                   // Add a comment explaining the auto-closure
-                  const commentBody = '🤖 This fire-bot issue has been ' +
+                  const commentBody = '🤖 This issue has been ' +
                     `automatically closed as it was created more than ${daysBack} ` +
                     `days ago (${new Date(issue.created_at).toLocaleDateString()}).\n\n` +
-                    'This is part of the automated fire-bot ticket cleanup process.';
+                    'This is part of the automated issue cleanup process.';
 
                   await github.rest.issues.createComment({
                     owner,
@@ -144,7 +155,7 @@ jobs:
                       owner,
                       repo,
                       issue_number: issue.number,
-                      labels: ['auto-closed', 'fire-bot-cleanup']
+                      labels: ['auto-closed', 'issue-cleanup']
                     });
                   } catch (labelError) {
                     console.log(`Could not add labels to #${issue.number}: ` +
@@ -162,13 +173,13 @@ jobs:
               }
             }
 
-            // Mark closed fire-bot issues for deletion (closed >10 days ago)
+            // Mark closed user issues for deletion (closed >specified days ago)
             for (const issue of closedOldIssues) {
               try {
                 // Check if already marked for deletion
                 const hasMarkedLabel = issue.labels.some(label =>
                   label.name === 'marked-for-deletion' ||
-                  label.name === 'fire-bot-cleanup'
+                  label.name === 'issue-cleanup'
                 );
 
                 if (!hasMarkedLabel) {
@@ -178,10 +189,10 @@ jobs:
 
                   if (!isDryRun) {
                     // Add comment about marking for deletion
-                    const delCommentBody = '🗑️ This fire-bot issue has been ' +
+                    const delCommentBody = '🗑️ This issue has been ' +
                       `marked for deletion as it was closed more than ${daysBack} ` +
                       `days ago (${new Date(issue.closed_at).toLocaleDateString()}).\n\n` +
-                      'This is part of the automated fire-bot ticket cleanup process.';
+                      'This is part of the automated issue cleanup process.';
 
                     await github.rest.issues.createComment({
                       owner,
@@ -196,7 +207,7 @@ jobs:
                         owner,
                         repo,
                         issue_number: issue.number,
-                        labels: ['marked-for-deletion', 'fire-bot-cleanup']
+                        labels: ['marked-for-deletion', 'issue-cleanup']
                       });
                     } catch (labelError) {
                       console.log(`Could not add deletion labels to ` +
@@ -222,9 +233,10 @@ jobs:
             // Summary
             console.log('\n=== SUMMARY ===');
             console.log(`Mode: ${isDryRun ? 'DRY-RUN' : 'LIVE'}`);
+            console.log(`Target user: ${user}`);
             console.log(`Days threshold: ${daysBack}`);
-            console.log(`Total fire-bot issues found: ${allFireBotIssues.length}`);
-            console.log(`Issues older than ${daysBack} days: ${oldFireBotIssues.length}`);
+            console.log(`Total ${user} issues found: ${allUserIssues.length}`);
+            console.log(`Issues older than ${daysBack} days: ${oldUserIssues.length}`);
             console.log(`${isDryRun ? 'Would close' : 'Closed'} ` +
               `open issues: ${closedCount}`);
             console.log(`${isDryRun ? 'Would mark' : 'Marked'} ` +
@@ -237,9 +249,10 @@ jobs:
 
             // Set outputs for potential further processing
             return {
+              user,
               daysBack,
-              totalIssues: allFireBotIssues.length,
-              oldIssues: oldFireBotIssues.length,
+              totalIssues: allUserIssues.length,
+              oldIssues: oldUserIssues.length,
               closedCount,
               markedForDeletionCount,
               errorCount: errors.length,
