@@ -1,0 +1,122 @@
+name: Remove Duplicate Issues
+
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  check-duplicates:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+
+    steps:
+      - name: Check for duplicate issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const currentIssue = context.payload.issue;
+            
+            // Skip if this issue is already closed
+            if (currentIssue.state === 'closed') {
+              console.log('Issue is already closed, skipping...');
+              return;
+            }
+            
+            const currentTitle = currentIssue.title.trim();
+            const currentNumber = currentIssue.number;
+            
+            console.log(`Checking for duplicates of issue #${currentNumber}: "${currentTitle}"`);
+            
+            // Search for open issues with the same title
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner,
+              repo,
+              state: 'open',
+              per_page: 100
+            });
+            
+            // Filter issues with the same title (case-insensitive)
+            const duplicates = issues.filter(issue => 
+              issue.number !== currentNumber && 
+              issue.title.trim().toLowerCase() === currentTitle.toLowerCase()
+            );
+            
+            console.log(`Found ${duplicates.length} potential duplicates`);
+            
+            if (duplicates.length > 0) {
+              // Find the oldest issue (lowest number) to keep open
+              const oldestIssue = duplicates.reduce((oldest, current) => 
+                current.number < oldest.number ? current : oldest, 
+                { number: currentNumber, created_at: currentIssue.created_at }
+              );
+              
+              // If current issue is the oldest, close the others
+              if (currentNumber <= oldestIssue.number) {
+                console.log(`Current issue #${currentNumber} is the oldest, closing duplicates...`);
+                
+                for (const duplicate of duplicates) {
+                  console.log(`Closing duplicate issue #${duplicate.number}`);
+                  
+                  // Close the duplicate issue
+                  await github.rest.issues.update({
+                    owner,
+                    repo,
+                    issue_number: duplicate.number,
+                    state: 'closed'
+                  });
+                  
+                  // Add a comment explaining the closure
+                  await github.rest.issues.createComment({
+                    owner,
+                    repo,
+                    issue_number: duplicate.number,
+                    body: `🔄 This issue has been automatically closed as a duplicate of #${currentNumber}.\n\nPlease refer to the original issue for further discussion.`
+                  });
+                  
+                  // Add duplicate label if it exists
+                  try {
+                    await github.rest.issues.addLabels({
+                      owner,
+                      repo,
+                      issue_number: duplicate.number,
+                      labels: ['duplicate']
+                    });
+                  } catch (error) {
+                    console.log(`Could not add 'duplicate' label (label may not exist): ${error.message}`);
+                  }
+                }
+              } else {
+                // Current issue is newer, close it instead
+                console.log(`Current issue #${currentNumber} is newer than #${oldestIssue.number}, closing current issue...`);
+                
+                await github.rest.issues.update({
+                  owner,
+                  repo,
+                  issue_number: currentNumber,
+                  state: 'closed'
+                });
+                
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: currentNumber,
+                  body: `🔄 This issue has been automatically closed as a duplicate of #${oldestIssue.number}.\n\nPlease refer to the original issue for further discussion.`
+                });
+                
+                try {
+                  await github.rest.issues.addLabels({
+                    owner,
+                    repo,
+                    issue_number: currentNumber,
+                    labels: ['duplicate']
+                  });
+                } catch (error) {
+                  console.log(`Could not add 'duplicate' label (label may not exist): ${error.message}`);
+                }
+              }
+            } else {
+              console.log('No duplicates found');
+            }
