@@ -1,0 +1,248 @@
+---
+name: Auto Close Fire-Bot Tickets
+
+"on":
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run in dry-run mode (don't actually close/mark issues)"
+        required: false
+        default: "false"
+        type: boolean
+      days:
+        description: "Number of days to look back for old fire-bot issues"
+        required: false
+        default: "10"
+        type: string
+
+jobs:
+  auto-close-firebot-tickets:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+
+    steps:
+      - name: Auto Close Fire-Bot Tickets
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const isDryRun = context.eventName === 'workflow_dispatch' &&
+              '${{ github.event.inputs.dry_run }}' === 'true';
+            
+            // For scheduled runs, use 10 days; for manual runs, use the input
+            const daysBack = context.eventName === 'schedule' ? 10 : parseInt('${{ github.event.inputs.days }}') || 10;
+
+            console.log(`Running in ${isDryRun ? 'DRY-RUN' : 'LIVE'} mode`);
+
+            // Calculate date thresholds (daysBack days ago)
+            const thresholdDate = new Date();
+            thresholdDate.setDate(thresholdDate.getDate() - daysBack);
+            const thresholdDateISO = thresholdDate.toISOString();
+
+            console.log(`Looking for fire-bot issues older than: ` +
+              `${thresholdDateISO} (${daysBack} days ago)`);
+
+            // Search for all issues created by fire-bot user
+            console.log('Searching for fire-bot issues...');
+
+            let allFireBotIssues = [];
+            let page = 1;
+            const perPage = 100;
+
+            // Fetch all fire-bot issues (both open and closed)
+            while (true) {
+              try {
+                const { data: issues } = await github.rest.issues.listForRepo({
+                  owner,
+                  repo,
+                  state: 'all',
+                  creator: 'fire-bot',
+                  per_page: perPage,
+                  page: page,
+                  sort: 'created',
+                  direction: 'desc'
+                });
+
+                if (issues.length === 0) {
+                  break;
+                }
+
+                allFireBotIssues = allFireBotIssues.concat(
+                  issues.filter(issue => !issue.pull_request)
+                );
+                page++;
+
+                // If we got less than perPage results, we've reached the end
+                if (issues.length < perPage) {
+                  break;
+                }
+              } catch (error) {
+                console.error(`Error fetching issues page ${page}:`, error);
+                break;
+              }
+            }
+
+            console.log(`Found ${allFireBotIssues.length} total fire-bot issues`);
+
+            // Filter issues older than specified days
+            const oldFireBotIssues = allFireBotIssues.filter(issue =>
+              new Date(issue.created_at) < thresholdDate
+            );
+
+            console.log(`Found ${oldFireBotIssues.length} ` +
+              `fire-bot issues older than ${daysBack} days`);
+
+            // Separate open and closed issues
+            const openOldIssues = oldFireBotIssues.filter(
+              issue => issue.state === 'open'
+            );
+            const closedOldIssues = oldFireBotIssues.filter(issue =>
+              issue.state === 'closed' && new Date(issue.closed_at) < thresholdDate
+            );
+
+            console.log(`- ${openOldIssues.length} open issues to close`);
+            console.log(`- ${closedOldIssues.length} ` +
+              `closed issues to mark for deletion`);
+
+            let closedCount = 0;
+            let markedForDeletionCount = 0;
+            let errors = [];
+
+            // Close open fire-bot issues older than 10 days
+            for (const issue of openOldIssues) {
+              try {
+                console.log(`Processing open issue #${issue.number}: ` +
+                  `${issue.title}`);
+
+                if (!isDryRun) {
+                  // Close the issue
+                  await github.rest.issues.update({
+                    owner,
+                    repo,
+                    issue_number: issue.number,
+                    state: 'closed'
+                  });
+
+                  // Add a comment explaining the auto-closure
+                  const commentBody = '🤖 This fire-bot issue has been ' +
+                    `automatically closed as it was created more than ${daysBack} ` +
+                    `days ago (${new Date(issue.created_at).toLocaleDateString()}).\n\n` +
+                    'This is part of the automated fire-bot ticket cleanup process.';
+
+                  await github.rest.issues.createComment({
+                    owner,
+                    repo,
+                    issue_number: issue.number,
+                    body: commentBody
+                  });
+
+                  // Add auto-closed label if possible
+                  try {
+                    await github.rest.issues.addLabels({
+                      owner,
+                      repo,
+                      issue_number: issue.number,
+                      labels: ['auto-closed', 'fire-bot-cleanup']
+                    });
+                  } catch (labelError) {
+                    console.log(`Could not add labels to #${issue.number}: ` +
+                      `${labelError.message}`);
+                  }
+                }
+
+                closedCount++;
+                console.log(`${isDryRun ? '[DRY-RUN] Would close' : 'Closed'} ` +
+                  `issue #${issue.number}`);
+
+              } catch (error) {
+                console.error(`Error processing issue #${issue.number}:`, error);
+                errors.push(`Issue #${issue.number}: ${error.message}`);
+              }
+            }
+
+            // Mark closed fire-bot issues for deletion (closed >10 days ago)
+            for (const issue of closedOldIssues) {
+              try {
+                // Check if already marked for deletion
+                const hasMarkedLabel = issue.labels.some(label =>
+                  label.name === 'marked-for-deletion' ||
+                  label.name === 'fire-bot-cleanup'
+                );
+
+                if (!hasMarkedLabel) {
+                  console.log(`Processing closed issue #${issue.number}: ` +
+                    `${issue.title} (closed: ` +
+                    `${new Date(issue.closed_at).toLocaleDateString()})`);
+
+                  if (!isDryRun) {
+                    // Add comment about marking for deletion
+                    const delCommentBody = '🗑️ This fire-bot issue has been ' +
+                      `marked for deletion as it was closed more than ${daysBack} ` +
+                      `days ago (${new Date(issue.closed_at).toLocaleDateString()}).\n\n` +
+                      'This is part of the automated fire-bot ticket cleanup process.';
+
+                    await github.rest.issues.createComment({
+                      owner,
+                      repo,
+                      issue_number: issue.number,
+                      body: delCommentBody
+                    });
+
+                    // Add marked-for-deletion label
+                    try {
+                      await github.rest.issues.addLabels({
+                        owner,
+                        repo,
+                        issue_number: issue.number,
+                        labels: ['marked-for-deletion', 'fire-bot-cleanup']
+                      });
+                    } catch (labelError) {
+                      console.log(`Could not add deletion labels to ` +
+                        `#${issue.number}: ${labelError.message}`);
+                    }
+                  }
+
+                  markedForDeletionCount++;
+                  console.log(`${isDryRun ? '[DRY-RUN] Would mark' : 'Marked'} ` +
+                    `issue #${issue.number} for deletion`);
+                } else {
+                  console.log(`Issue #${issue.number} already marked for ` +
+                    `deletion, skipping`);
+                }
+
+              } catch (error) {
+                console.error(`Error processing closed issue ` +
+                  `#${issue.number}:`, error);
+                errors.push(`Issue #${issue.number}: ${error.message}`);
+              }
+            }
+
+            // Summary
+            console.log('\n=== SUMMARY ===');
+            console.log(`Mode: ${isDryRun ? 'DRY-RUN' : 'LIVE'}`);
+            console.log(`Days threshold: ${daysBack}`);
+            console.log(`Total fire-bot issues found: ${allFireBotIssues.length}`);
+            console.log(`Issues older than ${daysBack} days: ${oldFireBotIssues.length}`);
+            console.log(`${isDryRun ? 'Would close' : 'Closed'} ` +
+              `open issues: ${closedCount}`);
+            console.log(`${isDryRun ? 'Would mark' : 'Marked'} ` +
+              `for deletion: ${markedForDeletionCount}`);
+
+            if (errors.length > 0) {
+              console.log(`Errors encountered: ${errors.length}`);
+              errors.forEach(error => console.log(`  - ${error}`));
+            }
+
+            // Set outputs for potential further processing
+            return {
+              daysBack,
+              totalIssues: allFireBotIssues.length,
+              oldIssues: oldFireBotIssues.length,
+              closedCount,
+              markedForDeletionCount,
+              errorCount: errors.length,
+              isDryRun
+            };
+            
