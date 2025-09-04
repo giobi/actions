@@ -1,0 +1,84 @@
+---
+name: Dev Server Git Pull
+
+"on":
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to pull (default: main)"
+        required: false
+        default: "main"
+        type: string
+      run_post_commands:
+        description: "Run post-pull commands (clear cache, etc.)"
+        required: false
+        default: true
+        type: boolean
+      environment:
+        type: environment
+        description: Select target environment
+        required: true
+
+jobs:
+  deploy-dev:
+    runs-on: ubuntu-latest
+    environment: ${{inputs.environment}}
+
+    steps:
+      - name: Deploy to Dev Server via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ vars.HOST }}
+          username: ${{ vars.USER }}
+          key: ${{ secrets.SSHPRIVATE }}
+          port: ${{ vars.SSH_PORT || 22 }}
+          script: |
+            # Navigate to project directory
+            cd ${{ vars.PATH || '/var/www/html' }}
+
+            # Show current status
+            echo "=== Current Git Status ==="
+            git status
+            echo "=========================="
+
+            # Fetch latest changes
+            echo "Fetching latest changes..."
+            git fetch origin
+
+            # Switch to target branch and pull
+            echo "Switching to branch: ${{ github.event.inputs.branch }}"
+            git checkout ${{ github.event.inputs.branch }}
+            git pull origin ${{ github.event.inputs.branch }}
+
+            # Show what changed
+            echo "=== Latest Commits ==="
+            git log --oneline -5
+            echo "====================="
+
+            # Run post-pull commands if requested
+            if [ "${{ github.event.inputs.run_post_commands }}" = "true" ]; then
+              echo "Running post-pull commands..."
+
+              # Install/update composer dependencies
+              if [ -f "composer.json" ]; then
+                echo "Updating composer dependencies..."
+                composer install --no-dev --optimize-autoloader --no-interaction
+              fi
+
+              # Laravel specific commands
+              if [ -f "artisan" ]; then
+                echo "Running Laravel optimization commands..."
+                php artisan migrate --force
+                php artisan config:clear
+                php artisan cache:clear
+                php artisan route:clear
+                php artisan view:clear
+                php artisan optimize
+              fi
+
+              echo "Post-pull commands completed."
+            else
+              echo "Skipping post-pull commands."
+            fi
+
+            echo "=== Deployment completed successfully! ==="
