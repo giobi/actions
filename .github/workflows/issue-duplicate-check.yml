@@ -1,12 +1,36 @@
-# NOTE: A reusable version of this workflow is available at:
-# .github/workflows/issue-duplicate-check.yml  
-# See .github/workflows/README.md for usage instructions
+name: Reusable Remove Duplicate Issues
 
-name: Remove Duplicate Issues
-
-on:
-  issues:
-    types: [opened, edited]
+"on":
+  workflow_call:
+    inputs:
+      issue_number:
+        description: "Issue number to check for duplicates"
+        required: true
+        type: number
+      issue_title:
+        description: "Issue title to check for duplicates"
+        required: true
+        type: string
+      issue_state:
+        description: "Current state of the issue (open/closed)"
+        required: false
+        default: "open"
+        type: string
+      skip_if_closed:
+        description: "Skip processing if the issue is already closed"
+        required: false
+        default: true
+        type: boolean
+    outputs:
+      duplicates_found:
+        description: "Number of duplicate issues found"
+        value: ${{ jobs.check-duplicates.outputs.duplicates_found }}
+      duplicates_closed:
+        description: "Number of duplicate issues that were closed"
+        value: ${{ jobs.check-duplicates.outputs.duplicates_closed }}
+      current_issue_closed:
+        description: "Whether the current issue was closed as a duplicate"
+        value: ${{ jobs.check-duplicates.outputs.current_issue_closed }}
 
 jobs:
   check-duplicates:
@@ -14,25 +38,36 @@ jobs:
     permissions:
       issues: write
       contents: read
+    outputs:
+      duplicates_found: ${{ steps.check-duplicates.outputs.duplicates_found }}
+      duplicates_closed: ${{ steps.check-duplicates.outputs.duplicates_closed }}
+      current_issue_closed: ${{ steps.check-duplicates.outputs.current_issue_closed }}
 
     steps:
       - name: Check for duplicate issues
+        id: check-duplicates
         uses: actions/github-script@v7
         with:
           script: |
             const { owner, repo } = context.repo;
-            const currentIssue = context.payload.issue;
+            const currentNumber = ${{ inputs.issue_number }};
+            const currentTitle = '${{ inputs.issue_title }}';
+            const currentState = '${{ inputs.issue_state }}';
+            const skipIfClosed = ${{ inputs.skip_if_closed }};
             
-            // Skip if this issue is already closed
-            if (currentIssue.state === 'closed') {
-              console.log('Issue is already closed, skipping...');
+            console.log(`Checking for duplicates of issue #${currentNumber}: "${currentTitle}"`);
+            console.log(`Current issue state: ${currentState}`);
+            
+            // Skip if this issue is already closed and skip_if_closed is true
+            if (currentState === 'closed' && skipIfClosed) {
+              console.log('Issue is already closed and skip_if_closed is true, skipping...');
+              core.setOutput('duplicates_found', 0);
+              core.setOutput('duplicates_closed', 0);
+              core.setOutput('current_issue_closed', false);
               return;
             }
             
-            const currentTitle = currentIssue.title.trim();
-            const currentNumber = currentIssue.number;
-            
-            console.log(`Checking for duplicates of issue #${currentNumber}: "${currentTitle}"`);
+            const trimmedTitle = currentTitle.trim();
             
             // Search for open issues with the same title
             const { data: issues } = await github.rest.issues.listForRepo({
@@ -45,16 +80,19 @@ jobs:
             // Filter issues with the same title (case-insensitive)
             const duplicates = issues.filter(issue => 
               issue.number !== currentNumber && 
-              issue.title.trim().toLowerCase() === currentTitle.toLowerCase()
+              issue.title.trim().toLowerCase() === trimmedTitle.toLowerCase()
             );
             
             console.log(`Found ${duplicates.length} potential duplicates`);
+            
+            let duplicatesClosed = 0;
+            let currentIssueClosed = false;
             
             if (duplicates.length > 0) {
               // Find the oldest issue (lowest number) to keep open
               const oldestIssue = duplicates.reduce((oldest, current) => 
                 current.number < oldest.number ? current : oldest, 
-                { number: currentNumber, created_at: currentIssue.created_at }
+                { number: currentNumber }
               );
               
               // If current issue is the oldest, close the others
@@ -91,6 +129,8 @@ jobs:
                   } catch (error) {
                     console.log(`Could not add 'duplicate' label (label may not exist): ${error.message}`);
                   }
+                  
+                  duplicatesClosed++;
                 }
               } else {
                 // Current issue is newer, close it instead
@@ -120,7 +160,19 @@ jobs:
                 } catch (error) {
                   console.log(`Could not add 'duplicate' label (label may not exist): ${error.message}`);
                 }
+                
+                currentIssueClosed = true;
               }
             } else {
               console.log('No duplicates found');
             }
+            
+            // Set outputs
+            core.setOutput('duplicates_found', duplicates.length);
+            core.setOutput('duplicates_closed', duplicatesClosed);
+            core.setOutput('current_issue_closed', currentIssueClosed);
+            
+            console.log(`\n=== SUMMARY ===`);
+            console.log(`Duplicates found: ${duplicates.length}`);
+            console.log(`Duplicates closed: ${duplicatesClosed}`);
+            console.log(`Current issue closed: ${currentIssueClosed}`);

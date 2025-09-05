@@ -1,0 +1,32 @@
+---
+# Example: Using the reusable duplicate issue check workflow
+name: Auto Remove Duplicate Issues
+
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  check-duplicates:
+    # Only run for newly opened issues or when title is edited
+    if: |
+      github.event.action == 'opened' ||
+      (github.event.action == 'edited' && github.event.changes.title)
+    uses: giobi/actions/.github/workflows/issue-duplicate-check.yml@main
+    with:
+      issue_number: ${{ github.event.issue.number }}
+      issue_title: ${{ github.event.issue.title }}
+      issue_state: ${{ github.event.issue.state }}
+      skip_if_closed: true
+      
+  log-results:
+    needs: check-duplicates
+    runs-on: ubuntu-latest
+    if: always() && needs.check-duplicates.outputs.duplicates_found > 0
+    steps:
+      - name: Log Duplicate Check Results
+        run: |
+          echo "Duplicate check completed for issue #${{ github.event.issue.number }}"
+          echo "Duplicates found: ${{ needs.check-duplicates.outputs.duplicates_found }}"
+          echo "Duplicates closed: ${{ needs.check-duplicates.outputs.duplicates_closed }}"
+          echo "Current issue closed: ${{ needs.check-duplicates.outputs.current_issue_closed }}"

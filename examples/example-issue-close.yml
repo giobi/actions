@@ -1,0 +1,40 @@
+---
+# Example: Using the reusable auto-close user issues workflow
+name: Close Old Bot Issues
+
+on:
+  schedule:
+    # Run every Sunday at 2 AM UTC
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+    inputs:
+      username:
+        description: "Username whose issues to close"
+        required: true
+        type: string
+      dry_run:
+        description: "Run in dry-run mode"
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  close-old-issues:
+    uses: giobi/actions/.github/workflows/issue-close.yml@main
+    with:
+      user: ${{ github.event.inputs.username || 'dependabot[bot]' }}
+      dry_run: ${{ github.event.inputs.dry_run || false }}
+      days: ${{ github.event_name == 'schedule' && 30 || 10 }}
+    
+  notify-results:
+    needs: close-old-issues
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Report Results
+        run: |
+          echo "Issue cleanup completed!"
+          echo "Total issues found: ${{ needs.close-old-issues.outputs.total_issues }}"
+          echo "Issues closed: ${{ needs.close-old-issues.outputs.closed_count }}"
+          echo "Issues marked for deletion: ${{ needs.close-old-issues.outputs.marked_for_deletion_count }}"
+          echo "Errors: ${{ needs.close-old-issues.outputs.error_count }}"

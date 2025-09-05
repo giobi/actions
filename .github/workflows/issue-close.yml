@@ -1,12 +1,8 @@
 ---
-# NOTE: A reusable version of this workflow is available at:
-# .github/workflows/issue-close.yml
-# See .github/workflows/README.md for usage instructions
-
-name: Auto Close User Issues
+name: Reusable Auto Close User Issues
 
 "on":
-  workflow_dispatch:
+  workflow_call:
     inputs:
       user:
         description: "Username whose issues should be closed"
@@ -15,13 +11,26 @@ name: Auto Close User Issues
       dry_run:
         description: "Run in dry-run mode (don't actually close/mark issues)"
         required: false
-        default: "false"
+        default: false
         type: boolean
       days:
         description: "Number of days to look back for old user issues"
         required: false
-        default: "10"
-        type: string
+        default: 10
+        type: number
+    outputs:
+      total_issues:
+        description: "Total number of user issues found"
+        value: ${{ jobs.auto-close-user-issues.outputs.total_issues }}
+      closed_count:
+        description: "Number of issues closed"
+        value: ${{ jobs.auto-close-user-issues.outputs.closed_count }}
+      marked_for_deletion_count:
+        description: "Number of issues marked for deletion"
+        value: ${{ jobs.auto-close-user-issues.outputs.marked_for_deletion_count }}
+      error_count:
+        description: "Number of errors encountered"
+        value: ${{ jobs.auto-close-user-issues.outputs.error_count }}
 
 jobs:
   auto-close-user-issues:
@@ -29,24 +38,29 @@ jobs:
     permissions:
       issues: write
       contents: read
+    outputs:
+      total_issues: ${{ steps.close-issues.outputs.total_issues }}
+      closed_count: ${{ steps.close-issues.outputs.closed_count }}
+      marked_for_deletion_count: ${{ steps.close-issues.outputs.marked_for_deletion_count }}
+      error_count: ${{ steps.close-issues.outputs.error_count }}
 
     steps:
       - name: Auto Close User Issues
+        id: close-issues
         uses: actions/github-script@v7
         with:
           script: |
             const { owner, repo } = context.repo;
-            const isDryRun = context.eventName === 'workflow_dispatch' &&
-              '${{ github.event.inputs.dry_run }}' === 'true';
+            const isDryRun = ${{ inputs.dry_run }};
             
             // Get the user from input
-            const user = '${{ github.event.inputs.user }}';
+            const user = '${{ inputs.user }}';
             if (!user) {
               throw new Error('User input parameter is required');
             }
             
-            // For scheduled runs, use 10 days; for manual runs, use the input
-            const daysBack = context.eventName === 'schedule' ? 10 : parseInt('${{ github.event.inputs.days }}') || 10;
+            // Use the input days parameter
+            const daysBack = ${{ inputs.days }};
 
             console.log(`Running in ${isDryRun ? 'DRY-RUN' : 'LIVE'} mode`);
             console.log(`Target user: ${user}`);
@@ -251,7 +265,13 @@ jobs:
               errors.forEach(error => console.log(`  - ${error}`));
             }
 
-            // Set outputs for potential further processing
+            // Set outputs for the workflow
+            core.setOutput('total_issues', allUserIssues.length);
+            core.setOutput('closed_count', closedCount);
+            core.setOutput('marked_for_deletion_count', markedForDeletionCount);
+            core.setOutput('error_count', errors.length);
+
+            // Return data for potential further processing
             return {
               user,
               daysBack,
@@ -262,4 +282,3 @@ jobs:
               errorCount: errors.length,
               isDryRun
             };
-            
