@@ -1,6 +1,6 @@
 ---
 # NOTE: A reusable version of this workflow is available at:
-# .github/workflows/reusable-laravel-deploy.yml
+# .github/workflows/laravel-deploy.yml
 # See .github/workflows/README.md for usage instructions
 
 name: Dev Server Git Pull

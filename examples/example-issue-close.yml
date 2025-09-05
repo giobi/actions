@@ -20,7 +20,7 @@ on:
 
 jobs:
   close-old-issues:
-    uses: giobi/actions/.github/workflows/reusable-issue-close.yml@main
+    uses: giobi/actions/.github/workflows/issue-close.yml@main
     with:
       user: ${{ github.event.inputs.username || 'dependabot[bot]' }}
       dry_run: ${{ github.event.inputs.dry_run || false }}

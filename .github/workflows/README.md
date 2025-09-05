@@ -4,7 +4,7 @@ This directory contains reusable GitHub Actions workflows that can be called fro
 
 ## Available Reusable Workflows
 
-### 1. Auto Close User Issues (`reusable-issue-close.yml`)
+### 1. Auto Close User Issues (`issue-close.yml`)
 
 Automatically closes issues created by a specific user after a configurable number of days.
 
@@ -21,7 +21,7 @@ on:
 
 jobs:
   close-issues:
-    uses: giobi/actions/.github/workflows/reusable-issue-close.yml@main
+    uses: giobi/actions/.github/workflows/issue-close.yml@main
     with:
       user: ${{ github.event.inputs.username }}
       dry_run: false
@@ -39,7 +39,7 @@ jobs:
 - `marked_for_deletion_count`: Number of issues marked for deletion
 - `error_count`: Number of errors encountered
 
-### 2. Remove Duplicate Issues (`reusable-issue-duplicate-check.yml`)
+### 2. Remove Duplicate Issues (`issue-duplicate-check.yml`)
 
 Checks for and removes duplicate issues based on title matching.
 
@@ -52,7 +52,7 @@ on:
 
 jobs:
   check-duplicates:
-    uses: giobi/actions/.github/workflows/reusable-issue-duplicate-check.yml@main
+    uses: giobi/actions/.github/workflows/issue-duplicate-check.yml@main
     with:
       issue_number: ${{ github.event.issue.number }}
       issue_title: ${{ github.event.issue.title }}
@@ -71,7 +71,7 @@ jobs:
 - `duplicates_closed`: Number of duplicate issues that were closed
 - `current_issue_closed`: Whether the current issue was closed as a duplicate
 
-### 3. Laravel Git Pull Deployment (`reusable-laravel-deploy.yml`)
+### 3. Laravel Git Pull Deployment (`laravel-deploy.yml`)
 
 Deploys Laravel applications by pulling code from Git and running optimization commands.
 
@@ -88,7 +88,7 @@ on:
 
 jobs:
   deploy:
-    uses: giobi/actions/.github/workflows/reusable-laravel-deploy.yml@main
+    uses: giobi/actions/.github/workflows/laravel-deploy.yml@main
     with:
       branch: "main"
       run_post_commands: true

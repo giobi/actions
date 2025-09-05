@@ -12,7 +12,7 @@ jobs:
     if: |
       github.event.action == 'opened' ||
       (github.event.action == 'edited' && github.event.changes.title)
-    uses: giobi/actions/.github/workflows/reusable-issue-duplicate-check.yml@main
+    uses: giobi/actions/.github/workflows/issue-duplicate-check.yml@main
     with:
       issue_number: ${{ github.event.issue.number }}
       issue_title: ${{ github.event.issue.title }}

@@ -17,9 +17,9 @@ This repository is organized to provide reusable GitHub Actions, workflow templa
 
 The repository now provides **reusable workflows** that follow GitHub's official conventions. These can be called from any repository:
 
-- **`reusable-issue-close.yml`**: Automatically close old user issues
-- **`reusable-issue-duplicate-check.yml`**: Remove duplicate issues based on title matching  
-- **`reusable-laravel-deploy.yml`**: Deploy Laravel applications via SSH git pull
+- **`issue-close.yml`**: Automatically close old user issues
+- **`issue-duplicate-check.yml`**: Remove duplicate issues based on title matching  
+- **`laravel-deploy.yml`**: Deploy Laravel applications via SSH git pull
 
 See [`.github/workflows/README.md`](.github/workflows/README.md) for complete documentation and usage examples.
 

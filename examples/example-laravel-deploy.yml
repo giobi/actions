@@ -23,7 +23,7 @@ on:
 
 jobs:
   deploy:
-    uses: giobi/actions/.github/workflows/reusable-laravel-deploy.yml@main
+    uses: giobi/actions/.github/workflows/laravel-deploy.yml@main
     with:
       branch: ${{ github.event.inputs.branch }}
       run_post_commands: ${{ !github.event.inputs.skip_post_commands }}
