@@ -1,3 +1,7 @@
+# NOTE: A reusable version of this workflow is available at:
+# .github/workflows/reusable-issue-duplicate-check.yml  
+# See .github/workflows/README.md for usage instructions
+
 name: Remove Duplicate Issues
 
 on:

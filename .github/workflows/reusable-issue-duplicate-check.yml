@@ -1,6 +1,6 @@
 name: Reusable Remove Duplicate Issues
 
-on:
+"on":
   workflow_call:
     inputs:
       issue_number:

@@ -1,4 +1,8 @@
 ---
+# NOTE: A reusable version of this workflow is available at:
+# .github/workflows/reusable-issue-close.yml
+# See .github/workflows/README.md for usage instructions
+
 name: Auto Close User Issues
 
 "on":

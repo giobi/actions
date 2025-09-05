@@ -1,7 +1,7 @@
 ---
 name: Reusable Auto Close User Issues
 
-on:
+"on":
   workflow_call:
     inputs:
       user:

@@ -8,12 +8,26 @@ This repository is organized to provide reusable GitHub Actions, workflow templa
 
 ## Structure
 
-- **frameworks/**: Framework-specific actions and configurations
-- **situations/**: Scenario-based workflows and documentation
+- **`.github/workflows/`**: Reusable workflows that can be called from other repositories
+- **`examples/`**: Example usage files showing how to use the reusable workflows
+- **`github/`**: Original GitHub-related workflow templates
+- **`laravel/`**: Original Laravel-specific workflow templates
+
+## Reusable Workflows
+
+The repository now provides **reusable workflows** that follow GitHub's official conventions. These can be called from any repository:
+
+- **`reusable-issue-close.yml`**: Automatically close old user issues
+- **`reusable-issue-duplicate-check.yml`**: Remove duplicate issues based on title matching  
+- **`reusable-laravel-deploy.yml`**: Deploy Laravel applications via SSH git pull
+
+See [`.github/workflows/README.md`](.github/workflows/README.md) for complete documentation and usage examples.
 
 ## Getting Started
 
-Browse the folders to find actions and workflows relevant to your project needs. Each folder contains documentation and example configurations.
+1. **For reusable workflows**: Check the [`.github/workflows/README.md`](.github/workflows/README.md) for detailed usage instructions
+2. **For original templates**: Browse the `github/` and `laravel/` folders for standalone workflow templates
+3. **For examples**: Look at the `examples/` directory to see real-world usage patterns
 
 ## Contributing
 
