@@ -1,0 +1,284 @@
+---
+name: Reusable Auto Close User Issues
+
+on:
+  workflow_call:
+    inputs:
+      user:
+        description: "Username whose issues should be closed"
+        required: true
+        type: string
+      dry_run:
+        description: "Run in dry-run mode (don't actually close/mark issues)"
+        required: false
+        default: false
+        type: boolean
+      days:
+        description: "Number of days to look back for old user issues"
+        required: false
+        default: 10
+        type: number
+    outputs:
+      total_issues:
+        description: "Total number of user issues found"
+        value: ${{ jobs.auto-close-user-issues.outputs.total_issues }}
+      closed_count:
+        description: "Number of issues closed"
+        value: ${{ jobs.auto-close-user-issues.outputs.closed_count }}
+      marked_for_deletion_count:
+        description: "Number of issues marked for deletion"
+        value: ${{ jobs.auto-close-user-issues.outputs.marked_for_deletion_count }}
+      error_count:
+        description: "Number of errors encountered"
+        value: ${{ jobs.auto-close-user-issues.outputs.error_count }}
+
+jobs:
+  auto-close-user-issues:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    outputs:
+      total_issues: ${{ steps.close-issues.outputs.total_issues }}
+      closed_count: ${{ steps.close-issues.outputs.closed_count }}
+      marked_for_deletion_count: ${{ steps.close-issues.outputs.marked_for_deletion_count }}
+      error_count: ${{ steps.close-issues.outputs.error_count }}
+
+    steps:
+      - name: Auto Close User Issues
+        id: close-issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const isDryRun = ${{ inputs.dry_run }};
+            
+            // Get the user from input
+            const user = '${{ inputs.user }}';
+            if (!user) {
+              throw new Error('User input parameter is required');
+            }
+            
+            // Use the input days parameter
+            const daysBack = ${{ inputs.days }};
+
+            console.log(`Running in ${isDryRun ? 'DRY-RUN' : 'LIVE'} mode`);
+            console.log(`Target user: ${user}`);
+
+            // Calculate date thresholds (daysBack days ago)
+            const thresholdDate = new Date();
+            thresholdDate.setDate(thresholdDate.getDate() - daysBack);
+            const thresholdDateISO = thresholdDate.toISOString();
+
+            console.log(`Looking for ${user} issues older than: ` +
+              `${thresholdDateISO} (${daysBack} days ago)`);
+
+            // Search for all issues created by the specified user
+            console.log(`Searching for ${user} issues...`);
+
+            let allUserIssues = [];
+            let page = 1;
+            const perPage = 100;
+
+            // Fetch all user issues (both open and closed)
+            while (true) {
+              try {
+                const { data: issues } = await github.rest.issues.listForRepo({
+                  owner,
+                  repo,
+                  state: 'all',
+                  creator: user,
+                  per_page: perPage,
+                  page: page,
+                  sort: 'created',
+                  direction: 'desc'
+                });
+
+                if (issues.length === 0) {
+                  break;
+                }
+
+                allUserIssues = allUserIssues.concat(
+                  issues.filter(issue => !issue.pull_request)
+                );
+                page++;
+
+                // If we got less than perPage results, we've reached the end
+                if (issues.length < perPage) {
+                  break;
+                }
+              } catch (error) {
+                console.error(`Error fetching issues page ${page}:`, error);
+                break;
+              }
+            }
+
+            console.log(`Found ${allUserIssues.length} total ${user} issues`);
+
+            // Filter issues older than specified days
+            const oldUserIssues = allUserIssues.filter(issue =>
+              new Date(issue.created_at) < thresholdDate
+            );
+
+            console.log(`Found ${oldUserIssues.length} ` +
+              `${user} issues older than ${daysBack} days`);
+
+            // Separate open and closed issues
+            const openOldIssues = oldUserIssues.filter(
+              issue => issue.state === 'open'
+            );
+            const closedOldIssues = oldUserIssues.filter(issue =>
+              issue.state === 'closed' && new Date(issue.closed_at) < thresholdDate
+            );
+
+            console.log(`- ${openOldIssues.length} open issues to close`);
+            console.log(`- ${closedOldIssues.length} ` +
+              `closed issues to mark for deletion`);
+
+            let closedCount = 0;
+            let markedForDeletionCount = 0;
+            let errors = [];
+
+            // Close open user issues older than specified days
+            for (const issue of openOldIssues) {
+              try {
+                console.log(`Processing open issue #${issue.number}: ` +
+                  `${issue.title}`);
+
+                if (!isDryRun) {
+                  // Close the issue
+                  await github.rest.issues.update({
+                    owner,
+                    repo,
+                    issue_number: issue.number,
+                    state: 'closed'
+                  });
+
+                  // Add a comment explaining the auto-closure
+                  const commentBody = '🤖 This issue has been ' +
+                    `automatically closed as it was created more than ${daysBack} ` +
+                    `days ago (${new Date(issue.created_at).toLocaleDateString()}).\n\n` +
+                    'This is part of the automated issue cleanup process.';
+
+                  await github.rest.issues.createComment({
+                    owner,
+                    repo,
+                    issue_number: issue.number,
+                    body: commentBody
+                  });
+
+                  // Add auto-closed label if possible
+                  try {
+                    await github.rest.issues.addLabels({
+                      owner,
+                      repo,
+                      issue_number: issue.number,
+                      labels: ['auto-closed', 'issue-cleanup']
+                    });
+                  } catch (labelError) {
+                    console.log(`Could not add labels to #${issue.number}: ` +
+                      `${labelError.message}`);
+                  }
+                }
+
+                closedCount++;
+                console.log(`${isDryRun ? '[DRY-RUN] Would close' : 'Closed'} ` +
+                  `issue #${issue.number}`);
+
+              } catch (error) {
+                console.error(`Error processing issue #${issue.number}:`, error);
+                errors.push(`Issue #${issue.number}: ${error.message}`);
+              }
+            }
+
+            // Mark closed user issues for deletion (closed >specified days ago)
+            for (const issue of closedOldIssues) {
+              try {
+                // Check if already marked for deletion
+                const hasMarkedLabel = issue.labels.some(label =>
+                  label.name === 'marked-for-deletion' ||
+                  label.name === 'issue-cleanup'
+                );
+
+                if (!hasMarkedLabel) {
+                  console.log(`Processing closed issue #${issue.number}: ` +
+                    `${issue.title} (closed: ` +
+                    `${new Date(issue.closed_at).toLocaleDateString()})`);
+
+                  if (!isDryRun) {
+                    // Add comment about marking for deletion
+                    const delCommentBody = '🗑️ This issue has been ' +
+                      `marked for deletion as it was closed more than ${daysBack} ` +
+                      `days ago (${new Date(issue.closed_at).toLocaleDateString()}).\n\n` +
+                      'This is part of the automated issue cleanup process.';
+
+                    await github.rest.issues.createComment({
+                      owner,
+                      repo,
+                      issue_number: issue.number,
+                      body: delCommentBody
+                    });
+
+                    // Add marked-for-deletion label
+                    try {
+                      await github.rest.issues.addLabels({
+                        owner,
+                        repo,
+                        issue_number: issue.number,
+                        labels: ['marked-for-deletion', 'issue-cleanup']
+                      });
+                    } catch (labelError) {
+                      console.log(`Could not add deletion labels to ` +
+                        `#${issue.number}: ${labelError.message}`);
+                    }
+                  }
+
+                  markedForDeletionCount++;
+                  console.log(`${isDryRun ? '[DRY-RUN] Would mark' : 'Marked'} ` +
+                    `issue #${issue.number} for deletion`);
+                } else {
+                  console.log(`Issue #${issue.number} already marked for ` +
+                    `deletion, skipping`);
+                }
+
+              } catch (error) {
+                console.error(`Error processing closed issue ` +
+                  `#${issue.number}:`, error);
+                errors.push(`Issue #${issue.number}: ${error.message}`);
+              }
+            }
+
+            // Summary
+            console.log('\n=== SUMMARY ===');
+            console.log(`Mode: ${isDryRun ? 'DRY-RUN' : 'LIVE'}`);
+            console.log(`Target user: ${user}`);
+            console.log(`Days threshold: ${daysBack}`);
+            console.log(`Total ${user} issues found: ${allUserIssues.length}`);
+            console.log(`Issues older than ${daysBack} days: ${oldUserIssues.length}`);
+            console.log(`${isDryRun ? 'Would close' : 'Closed'} ` +
+              `open issues: ${closedCount}`);
+            console.log(`${isDryRun ? 'Would mark' : 'Marked'} ` +
+              `for deletion: ${markedForDeletionCount}`);
+
+            if (errors.length > 0) {
+              console.log(`Errors encountered: ${errors.length}`);
+              errors.forEach(error => console.log(`  - ${error}`));
+            }
+
+            // Set outputs for the workflow
+            core.setOutput('total_issues', allUserIssues.length);
+            core.setOutput('closed_count', closedCount);
+            core.setOutput('marked_for_deletion_count', markedForDeletionCount);
+            core.setOutput('error_count', errors.length);
+
+            // Return data for potential further processing
+            return {
+              user,
+              daysBack,
+              totalIssues: allUserIssues.length,
+              oldIssues: oldUserIssues.length,
+              closedCount,
+              markedForDeletionCount,
+              errorCount: errors.length,
+              isDryRun
+            };

@@ -1,0 +1,143 @@
+---
+name: Reusable Laravel Git Pull Deployment
+
+on:
+  workflow_call:
+    inputs:
+      branch:
+        description: "Branch to pull (default: main)"
+        required: false
+        default: "main"
+        type: string
+      run_post_commands:
+        description: "Run post-pull commands (clear cache, etc.)"
+        required: false
+        default: true
+        type: boolean
+      environment:
+        description: "Target environment for deployment"
+        required: true
+        type: string
+    secrets:
+      SSH_PRIVATE_KEY:
+        description: "SSH private key for server access"
+        required: true
+      SSH_HOST:
+        description: "SSH host/server address"
+        required: true
+      SSH_USER:
+        description: "SSH username"
+        required: true
+      SSH_PORT:
+        description: "SSH port (optional, defaults to 22)"
+        required: false
+      PROJECT_PATH:
+        description: "Path to project directory on server"
+        required: false
+    outputs:
+      deployment_status:
+        description: "Status of the deployment (success/failure)"
+        value: ${{ jobs.deploy-dev.outputs.deployment_status }}
+      branch_deployed:
+        description: "Branch that was deployed"
+        value: ${{ jobs.deploy-dev.outputs.branch_deployed }}
+      post_commands_run:
+        description: "Whether post-deployment commands were executed"
+        value: ${{ jobs.deploy-dev.outputs.post_commands_run }}
+
+jobs:
+  deploy-dev:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    outputs:
+      deployment_status: ${{ steps.deploy.outputs.deployment_status }}
+      branch_deployed: ${{ steps.deploy.outputs.branch_deployed }}
+      post_commands_run: ${{ steps.deploy.outputs.post_commands_run }}
+
+    steps:
+      - name: Deploy to Server via SSH
+        id: deploy
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            set -e  # Exit on any error
+            
+            # Set deployment status to failed initially
+            DEPLOYMENT_STATUS="failure"
+            
+            # Navigate to project directory
+            PROJECT_PATH="${{ secrets.PROJECT_PATH || '/var/www/html' }}"
+            echo "Navigating to project directory: $PROJECT_PATH"
+            cd "$PROJECT_PATH"
+
+            # Show current status
+            echo "=== Current Git Status ==="
+            git status
+            echo "=========================="
+
+            # Fetch latest changes
+            echo "Fetching latest changes..."
+            git fetch origin
+
+            # Switch to target branch and pull
+            BRANCH="${{ inputs.branch }}"
+            echo "Switching to branch: $BRANCH"
+            git checkout "$BRANCH"
+            git pull origin "$BRANCH"
+
+            # Show what changed
+            echo "=== Latest Commits ==="
+            git log --oneline -5
+            echo "====================="
+
+            # Run post-pull commands if requested
+            POST_COMMANDS_RUN="false"
+            if [ "${{ inputs.run_post_commands }}" = "true" ]; then
+              echo "Running post-pull commands..."
+              POST_COMMANDS_RUN="true"
+
+              # Install/update composer dependencies
+              if [ -f "composer.json" ]; then
+                echo "Updating composer dependencies..."
+                composer install --no-dev --optimize-autoloader --no-interaction
+              fi
+
+              # Laravel specific commands
+              if [ -f "artisan" ]; then
+                echo "Running Laravel optimization commands..."
+                php artisan migrate --force
+                php artisan config:clear
+                php artisan cache:clear
+                php artisan route:clear
+                php artisan view:clear
+                php artisan optimize
+              fi
+
+              echo "Post-pull commands completed."
+            else
+              echo "Skipping post-pull commands."
+            fi
+
+            # If we get here, deployment was successful
+            DEPLOYMENT_STATUS="success"
+            
+            echo "=== Deployment completed successfully! ==="
+            
+            # Export outputs for GitHub Actions
+            echo "deployment_status=$DEPLOYMENT_STATUS" >> $GITHUB_OUTPUT
+            echo "branch_deployed=$BRANCH" >> $GITHUB_OUTPUT
+            echo "post_commands_run=$POST_COMMANDS_RUN" >> $GITHUB_OUTPUT
+            
+      - name: Set step outputs
+        if: always()
+        run: |
+          # Ensure outputs are set even if the SSH action fails
+          if [ -z "${{ steps.deploy.outputs.deployment_status }}" ]; then
+            echo "deployment_status=failure" >> $GITHUB_OUTPUT
+            echo "branch_deployed=${{ inputs.branch }}" >> $GITHUB_OUTPUT
+            echo "post_commands_run=false" >> $GITHUB_OUTPUT
+          fi
