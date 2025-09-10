@@ -118,6 +118,54 @@ jobs:
 - `branch_deployed`: Branch that was deployed
 - `post_commands_run`: Whether post-deployment commands were executed
 
+### 4. PR Branch Cleanup (`pr-branch-cleanup.yml`)
+
+Automatically deletes branches from old pull requests to keep the repository clean.
+
+**Usage:**
+```yaml
+name: Cleanup Old PR Branches
+on:
+  # Run manually
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Days threshold for branch deletion"
+        required: false
+        default: "3"
+        type: string
+      dry_run:
+        description: "Run in dry-run mode"
+        required: false
+        default: true
+        type: boolean
+
+  # Run automatically weekly
+  schedule:
+    - cron: '0 2 * * 0'  # Sunday at 2 AM UTC
+
+jobs:
+  cleanup-branches:
+    uses: giobi/actions/.github/workflows/pr-branch-cleanup.yml@main
+    with:
+      days: ${{ github.event.inputs.days || 3 }}
+      dry_run: ${{ github.event.inputs.dry_run == 'true' || false }}
+      exclude_branches: "main,master,develop,dev,staging,production,prod"
+      include_open_prs: false
+```
+
+**Inputs:**
+- `days` (optional): Number of days to look back for old PR branches (default: 3)
+- `dry_run` (optional): Run in dry-run mode without actually deleting branches (default: false)
+- `exclude_branches` (optional): Comma-separated list of branch patterns to exclude (default: "main,master,develop,dev,staging,production,prod")
+- `include_open_prs` (optional): Also delete branches from open PRs older than specified days (default: false)
+
+**Outputs:**
+- `total_prs_checked`: Total number of PRs checked for branch cleanup
+- `branches_deleted`: Number of branches deleted
+- `branches_skipped`: Number of branches skipped (protected or not found)
+- `error_count`: Number of errors encountered
+
 ## General Usage Guidelines
 
 1. **Reference the workflow**: Use the format `owner/repo/.github/workflows/workflow-file.yml@ref`

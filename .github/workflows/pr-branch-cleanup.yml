@@ -1,0 +1,269 @@
+---
+name: Reusable PR Branch Cleanup
+
+"on":
+  workflow_call:
+    inputs:
+      days:
+        description: "Number of days to look back for old PR branches to delete"
+        required: false
+        default: 3
+        type: number
+      dry_run:
+        description: "Run in dry-run mode (don't actually delete branches)"
+        required: false
+        default: false
+        type: boolean
+      exclude_branches:
+        description: "Comma-separated list of branch patterns to exclude from deletion (supports wildcards)"
+        required: false
+        default: "main,master,develop,dev,staging,production,prod"
+        type: string
+      include_open_prs:
+        description: "Also delete branches from open PRs older than specified days"
+        required: false
+        default: false
+        type: boolean
+    outputs:
+      total_prs_checked:
+        description: "Total number of PRs checked"
+        value: ${{ jobs.cleanup-pr-branches.outputs.total_prs_checked }}
+      branches_deleted:
+        description: "Number of branches deleted"
+        value: ${{ jobs.cleanup-pr-branches.outputs.branches_deleted }}
+      branches_skipped:
+        description: "Number of branches skipped (protected or not found)"
+        value: ${{ jobs.cleanup-pr-branches.outputs.branches_skipped }}
+      error_count:
+        description: "Number of errors encountered"
+        value: ${{ jobs.cleanup-pr-branches.outputs.error_count }}
+
+jobs:
+  cleanup-pr-branches:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    outputs:
+      total_prs_checked: ${{ steps.cleanup-branches.outputs.total_prs_checked }}
+      branches_deleted: ${{ steps.cleanup-branches.outputs.branches_deleted }}
+      branches_skipped: ${{ steps.cleanup-branches.outputs.branches_skipped }}
+      error_count: ${{ steps.cleanup-branches.outputs.error_count }}
+
+    steps:
+      - name: Cleanup PR Branches
+        id: cleanup-branches
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const isDryRun = ${{ inputs.dry_run }};
+            const daysBack = ${{ inputs.days }};
+            const includeOpenPRs = ${{ inputs.include_open_prs }};
+            
+            // Parse excluded branch patterns
+            const excludePatternsStr = '${{ inputs.exclude_branches }}';
+            const excludePatterns = excludePatternsStr
+              .split(',')
+              .map(pattern => pattern.trim().toLowerCase())
+              .filter(pattern => pattern.length > 0);
+
+            console.log(`Running in ${isDryRun ? 'DRY-RUN' : 'LIVE'} mode`);
+            console.log(`Looking for PR branches older than ${daysBack} days`);
+            console.log(`Include open PRs: ${includeOpenPRs}`);
+            console.log(`Excluded branch patterns: ${excludePatterns.join(', ')}`);
+
+            // Calculate date threshold
+            const thresholdDate = new Date();
+            thresholdDate.setDate(thresholdDate.getDate() - daysBack);
+            const thresholdDateISO = thresholdDate.toISOString();
+
+            console.log(`Threshold date: ${thresholdDateISO}`);
+
+            // Function to check if branch matches any exclude pattern
+            function isExcludedBranch(branchName) {
+              const lowerBranchName = branchName.toLowerCase();
+              return excludePatterns.some(pattern => {
+                if (pattern.includes('*')) {
+                  // Simple wildcard matching
+                  const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
+                  return regex.test(lowerBranchName);
+                }
+                return lowerBranchName === pattern;
+              });
+            }
+
+            // Fetch all PRs (both open and closed)
+            console.log('Fetching PRs...');
+            let allPRs = [];
+            let page = 1;
+            const perPage = 100;
+
+            while (true) {
+              try {
+                const { data: prs } = await github.rest.pulls.list({
+                  owner,
+                  repo,
+                  state: 'all',
+                  per_page: perPage,
+                  page: page,
+                  sort: 'updated',
+                  direction: 'desc'
+                });
+
+                if (prs.length === 0) {
+                  break;
+                }
+
+                allPRs = allPRs.concat(prs);
+                page++;
+
+                // If we got less than perPage results, we've reached the end
+                if (prs.length < perPage) {
+                  break;
+                }
+              } catch (error) {
+                console.error(`Error fetching PRs page ${page}:`, error);
+                break;
+              }
+            }
+
+            console.log(`Found ${allPRs.length} total PRs`);
+
+            // Filter PRs based on criteria
+            const targetPRs = allPRs.filter(pr => {
+              // Skip if PR is from a fork (we can't delete those branches)
+              if (pr.head.repo.full_name !== pr.base.repo.full_name) {
+                return false;
+              }
+
+              // Check age based on created_at or updated_at
+              const prDate = new Date(pr.updated_at);
+              const isOldEnough = prDate < thresholdDate;
+
+              if (!isOldEnough) {
+                return false;
+              }
+
+              // If includeOpenPRs is false, only include closed/merged PRs
+              if (!includeOpenPRs && pr.state === 'open') {
+                return false;
+              }
+
+              return true;
+            });
+
+            console.log(`Found ${targetPRs.length} PRs matching criteria`);
+
+            let branchesDeleted = 0;
+            let branchesSkipped = 0;
+            let errors = [];
+
+            // Process each PR
+            for (const pr of targetPRs) {
+              const branchName = pr.head.ref;
+              const prNumber = pr.number;
+              const prState = pr.state;
+              const prUpdated = new Date(pr.updated_at).toLocaleDateString();
+
+              console.log(`\nProcessing PR #${prNumber} (${prState}): ${pr.title}`);
+              console.log(`  Branch: ${branchName} (updated: ${prUpdated})`);
+
+              try {
+                // Check if branch should be excluded
+                if (isExcludedBranch(branchName)) {
+                  console.log(`  ❌ Skipping excluded branch: ${branchName}`);
+                  branchesSkipped++;
+                  continue;
+                }
+
+                // Check if branch still exists
+                let branchExists = false;
+                try {
+                  await github.rest.repos.getBranch({
+                    owner,
+                    repo,
+                    branch: branchName
+                  });
+                  branchExists = true;
+                } catch (error) {
+                  if (error.status === 404) {
+                    console.log(`  ℹ️  Branch ${branchName} no longer exists, skipping`);
+                    branchesSkipped++;
+                    continue;
+                  } else {
+                    throw error;
+                  }
+                }
+
+                if (branchExists) {
+                  // Check if branch is protected
+                  let isProtected = false;
+                  try {
+                    const { data: protection } = await github.rest.repos.getBranchProtection({
+                      owner,
+                      repo,
+                      branch: branchName
+                    });
+                    isProtected = true;
+                  } catch (error) {
+                    // If 404, branch is not protected
+                    if (error.status !== 404) {
+                      console.log(`  ⚠️  Could not check protection for ${branchName}: ${error.message}`);
+                    }
+                  }
+
+                  if (isProtected) {
+                    console.log(`  🛡️  Skipping protected branch: ${branchName}`);
+                    branchesSkipped++;
+                    continue;
+                  }
+
+                  // Delete the branch
+                  if (!isDryRun) {
+                    await github.rest.git.deleteRef({
+                      owner,
+                      repo,
+                      ref: `heads/${branchName}`
+                    });
+                  }
+
+                  branchesDeleted++;
+                  console.log(`  ${isDryRun ? '🏃 [DRY-RUN] Would delete' : '🗑️  Deleted'} branch: ${branchName}`);
+                }
+
+              } catch (error) {
+                console.error(`  ❌ Error processing PR #${prNumber}: ${error.message}`);
+                errors.push(`PR #${prNumber} (${branchName}): ${error.message}`);
+              }
+            }
+
+            // Summary
+            console.log('\n=== SUMMARY ===');
+            console.log(`Mode: ${isDryRun ? 'DRY-RUN' : 'LIVE'}`);
+            console.log(`Days threshold: ${daysBack}`);
+            console.log(`Include open PRs: ${includeOpenPRs}`);
+            console.log(`Total PRs checked: ${targetPRs.length}`);
+            console.log(`${isDryRun ? 'Would delete' : 'Deleted'} branches: ${branchesDeleted}`);
+            console.log(`Branches skipped: ${branchesSkipped}`);
+
+            if (errors.length > 0) {
+              console.log(`Errors encountered: ${errors.length}`);
+              errors.forEach(error => console.log(`  - ${error}`));
+            }
+
+            // Set outputs
+            core.setOutput('total_prs_checked', targetPRs.length);
+            core.setOutput('branches_deleted', branchesDeleted);
+            core.setOutput('branches_skipped', branchesSkipped);
+            core.setOutput('error_count', errors.length);
+
+            return {
+              daysBack,
+              totalPRsChecked: targetPRs.length,
+              branchesDeleted,
+              branchesSkipped,
+              errorCount: errors.length,
+              isDryRun,
+              includeOpenPRs
+            };
