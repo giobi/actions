@@ -1,0 +1,36 @@
+name: Test PR Branch Cleanup Workflow
+on:
+  workflow_dispatch:
+    inputs:
+      test_mode:
+        description: "Test mode (always use dry_run=true for testing)"
+        required: false
+        default: "dry_run"
+        type: choice
+        options:
+          - dry_run
+          - live_mode
+
+jobs:
+  test-branch-cleanup:
+    uses: ./.github/workflows/pr-branch-cleanup.yml
+    with:
+      days: 1  # Very short threshold for testing
+      dry_run: true  # Always use dry run for testing
+      exclude_branches: "main,master,develop,dev,staging,production,prod,release/*,hotfix/*"
+      include_open_prs: false
+    
+  # Job to display results
+  display-results:
+    needs: test-branch-cleanup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Display Test Results
+        run: |
+          echo "=== PR Branch Cleanup Test Results ==="
+          echo "Total PRs checked: ${{ needs.test-branch-cleanup.outputs.total_prs_checked }}"
+          echo "Branches deleted: ${{ needs.test-branch-cleanup.outputs.branches_deleted }}"
+          echo "Branches skipped: ${{ needs.test-branch-cleanup.outputs.branches_skipped }}"
+          echo "Errors encountered: ${{ needs.test-branch-cleanup.outputs.error_count }}"
+          echo ""
+          echo "Note: This was run in DRY-RUN mode - no branches were actually deleted."

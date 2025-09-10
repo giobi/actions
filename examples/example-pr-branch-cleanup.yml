@@ -1,0 +1,33 @@
+name: Example PR Branch Cleanup
+on:
+  # Run manually with custom parameters
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Days threshold for branch deletion"
+        required: false
+        default: "3"
+        type: string
+      dry_run:
+        description: "Run in dry-run mode"
+        required: false
+        default: true
+        type: boolean
+      include_open_prs:
+        description: "Include branches from open PRs"
+        required: false
+        default: false
+        type: boolean
+
+  # Run automatically every week on Sunday at 2 AM UTC
+  schedule:
+    - cron: '0 2 * * 0'
+
+jobs:
+  cleanup-old-pr-branches:
+    uses: giobi/actions/.github/workflows/pr-branch-cleanup.yml@main
+    with:
+      days: ${{ github.event.inputs.days || 7 }}  # Default to 7 days for scheduled runs
+      dry_run: ${{ github.event.inputs.dry_run == 'true' || false }}  # Default to live mode for scheduled
+      exclude_branches: "main,master,develop,dev,staging,production,prod,release/*,hotfix/*"
+      include_open_prs: ${{ github.event.inputs.include_open_prs == 'true' || false }}
