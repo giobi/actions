@@ -166,6 +166,57 @@ jobs:
 - `branches_skipped`: Number of branches skipped (protected or not found)
 - `error_count`: Number of errors encountered
 
+### 5. Documentation Enforcement (`documentation-enforcement.yml`)
+
+Analyzes recent closed issues to identify feature implementations and automatically creates comprehensive documentation update tasks for Copilot.
+
+**Usage:**
+```yaml
+name: Enforce Documentation Updates
+on:
+  # Run weekly to check for new features
+  schedule:
+    - cron: '0 9 * * 1'  # Monday at 9 AM UTC
+  
+  # Run manually with custom parameters
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Number of days to look back for closed issues"
+        required: false
+        default: "14"
+        type: string
+      dry_run:
+        description: "Run in dry-run mode"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  enforce-documentation:
+    uses: giobi/actions/.github/workflows/documentation-enforcement.yml@main
+    with:
+      days: ${{ github.event.inputs.days || 14 }}
+      target_docs: "readme.md,agents.md,docs/,help/"
+      dry_run: ${{ github.event.inputs.dry_run || false }}
+    secrets:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+```
+
+**Inputs:**
+- `days` (optional): Number of days to look back for closed issues (default: 14)
+- `target_docs` (optional): Comma-separated list of documentation files to target (default: "readme.md,agents.md,docs/,help/")
+- `dry_run` (optional): Run in dry-run mode without creating issues (default: false)
+
+**Secrets:**
+- `OPENROUTER_API_KEY` (optional): OpenRouter API key for AI analysis (if not provided, uses manual analysis)
+
+**Outputs:**
+- `issues_analyzed`: Number of issues analyzed
+- `features_found`: Number of feature implementations found
+- `documentation_issue_created`: Whether a documentation update issue was created
+- `documentation_issue_number`: Number of the created documentation issue
+
 ## General Usage Guidelines
 
 1. **Reference the workflow**: Use the format `owner/repo/.github/workflows/workflow-file.yml@ref`
