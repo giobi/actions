@@ -1,16 +1,40 @@
 name: Generate Activity Summary
 
 "on":
-  schedule:
-    # Run every Monday at 8:00 AM UTC
-    - cron: "0 8 * * 1"
-  workflow_dispatch:
+  workflow_call:
     inputs:
       days:
         description: "Number of days to look back for closed issues and PRs"
-        required: true
+        required: false
         default: "7"
         type: string
+      language:
+        description: "Language for the summary (italian, english)"
+        required: false
+        default: "italian"
+        type: string
+      label:
+        description: "Label to apply to the created summary issue"
+        required: false
+        default: "TOPIC"
+        type: string
+    secrets:
+      OPENROUTER_API_KEY:
+        description: "OpenRouter API key for AI summary generation"
+        required: true
+    outputs:
+      issue_number:
+        description: "Number of the created summary issue"
+        value: ${{ jobs.generate-summary.outputs.issue_number }}
+      issue_url:
+        description: "URL of the created summary issue"
+        value: ${{ jobs.generate-summary.outputs.issue_url }}
+      issues_count:
+        description: "Number of closed issues found"
+        value: ${{ jobs.generate-summary.outputs.issues_count }}
+      pull_requests_count:
+        description: "Number of closed pull requests found"
+        value: ${{ jobs.generate-summary.outputs.pull_requests_count }}
 
 jobs:
   generate-summary:
@@ -19,15 +43,21 @@ jobs:
       issues: write
       contents: read
       pull-requests: read
+    outputs:
+      issue_number: ${{ steps.generate-activity-summary.outputs.issue_number }}
+      issue_url: ${{ steps.generate-activity-summary.outputs.issue_url }}
+      issues_count: ${{ steps.generate-activity-summary.outputs.issues_count }}
+      pull_requests_count: ${{ steps.generate-activity-summary.outputs.pull_requests_count }}
 
     steps:
       - name: Generate Activity Summary
+        id: generate-activity-summary
         uses: actions/github-script@v7
         with:
           script: |
             const { owner, repo } = context.repo;
-            // For scheduled runs, use 7 days; for manual runs, use the input
-            const daysBack = context.eventName === 'schedule' ? 7 : parseInt('${{ github.event.inputs.days }}');
+            // Use workflow input for days, with fallback to default
+            const daysBack = parseInt('${{ inputs.days }}');
             
             // Calculate date threshold
             const dateThreshold = new Date();
@@ -93,37 +123,74 @@ jobs:
               }))
             };
             
-            // Create prompt for AI summarization in Italian
-            const promptParts = [
-              'Genera un riassunto completo delle attività del repository GitHub degli ultimi ' + daysBack + ' giorni in ITALIANO.',
-              'Il riassunto deve essere strutturato in due parti principali:',
-              '',
-              '**PARTE 1 - TOP 10 DELLE ATTIVITÀ PRINCIPALI**',
-              'Elenca e spiega in modo semplice e comprensibile le 10 attività più importanti realizzate (issues chiuse e pull request). Usa un linguaggio accessibile, evita tecnicismi eccessivi.',
-              '',
-              '**PARTE 2 - DETTAGLI TECNICI**',
-              'Fornisci una sezione più tecnica e dettagliata con:',
-              '- Analisi approfondita dei cambiamenti',
-              '- Dettagli implementativi',
-              '- Tendenze e pattern identificati',
-              '- Aree di focus del team',
-              '- Considerazioni tecniche rilevanti',
-              '',
-              '**DATI DELLE ATTIVITÀ:**',
-              '',
-              '**Issues Chiuse (' + actualIssues.length + '):**',
-              actualIssues.map(issue => '- #' + issue.number + ': ' + issue.title + ' (chiusa da ' + issue.user.login + ')').join('\\n'),
-              '',
-              '**Pull Request Chiuse (' + recentPRs.length + '):**',
-              recentPRs.map(pr => '- #' + pr.number + ': ' + pr.title + ' (' + (pr.merged ? 'merged' : 'chiusa') + ' da ' + pr.user.login + ')').join('\\n'),
-              '',
-              'IMPORTANTE:',
-              '- Scrivi TUTTO in italiano',
-              '- Mantieni un tono professionale ma accessibile',
-              '- Usa il formato markdown per la formattazione',
-              '- Se non ci sono attività sufficienti per 10 punti, elenca quelle disponibili',
-              '- La parte tecnica può essere più lunga e dettagliata della parte semplice'
-            ];
+            // Get language preference
+            const language = '${{ inputs.language }}' || 'italian';
+            
+            // Create prompt for AI summarization based on language
+            let promptParts = [];
+            if (language === 'italian') {
+              promptParts = [
+                'Genera un riassunto completo delle attività del repository GitHub degli ultimi ' + daysBack + ' giorni in ITALIANO.',
+                'Il riassunto deve essere strutturato in due parti principali:',
+                '',
+                '**PARTE 1 - TOP 10 DELLE ATTIVITÀ PRINCIPALI**',
+                'Elenca e spiega in modo semplice e comprensibile le 10 attività più importanti realizzate (issues chiuse e pull request). Usa un linguaggio accessibile, evita tecnicismi eccessivi.',
+                '',
+                '**PARTE 2 - DETTAGLI TECNICI**',
+                'Fornisci una sezione più tecnica e dettagliata con:',
+                '- Analisi approfondita dei cambiamenti',
+                '- Dettagli implementativi',
+                '- Tendenze e pattern identificati',
+                '- Aree di focus del team',
+                '- Considerazioni tecniche rilevanti',
+                '',
+                '**DATI DELLE ATTIVITÀ:**',
+                '',
+                '**Issues Chiuse (' + actualIssues.length + '):**',
+                actualIssues.map(issue => '- #' + issue.number + ': ' + issue.title + ' (chiusa da ' + issue.user.login + ')').join('\\n'),
+                '',
+                '**Pull Request Chiuse (' + recentPRs.length + '):**',
+                recentPRs.map(pr => '- #' + pr.number + ': ' + pr.title + ' (' + (pr.merged ? 'merged' : 'chiusa') + ' da ' + pr.user.login + ')').join('\\n'),
+                '',
+                'IMPORTANTE:',
+                '- Scrivi TUTTO in italiano',
+                '- Mantieni un tono professionale ma accessibile',
+                '- Usa il formato markdown per la formattazione',
+                '- Se non ci sono attività sufficienti per 10 punti, elenca quelle disponibili',
+                '- La parte tecnica può essere più lunga e dettagliata della parte semplice'
+              ];
+            } else {
+              promptParts = [
+                'Generate a comprehensive summary of GitHub repository activities for the last ' + daysBack + ' days in ENGLISH.',
+                'The summary should be structured in two main parts:',
+                '',
+                '**PART 1 - TOP 10 MAIN ACTIVITIES**',
+                'List and explain in simple and understandable terms the 10 most important activities completed (closed issues and pull requests). Use accessible language, avoid excessive technical jargon.',
+                '',
+                '**PART 2 - TECHNICAL DETAILS**',
+                'Provide a more technical and detailed section with:',
+                '- In-depth analysis of changes',
+                '- Implementation details',
+                '- Identified trends and patterns',
+                '- Team focus areas',
+                '- Relevant technical considerations',
+                '',
+                '**ACTIVITY DATA:**',
+                '',
+                '**Closed Issues (' + actualIssues.length + '):**',
+                actualIssues.map(issue => '- #' + issue.number + ': ' + issue.title + ' (closed by ' + issue.user.login + ')').join('\\n'),
+                '',
+                '**Closed Pull Requests (' + recentPRs.length + '):**',
+                recentPRs.map(pr => '- #' + pr.number + ': ' + pr.title + ' (' + (pr.merged ? 'merged' : 'closed') + ' by ' + pr.user.login + ')').join('\\n'),
+                '',
+                'IMPORTANT:',
+                '- Write everything in English',
+                '- Maintain a professional but accessible tone',
+                '- Use markdown format for formatting',
+                '- If there are not enough activities for 10 points, list those available',
+                '- The technical part can be longer and more detailed than the simple part'
+              ];
+            }
             const prompt = promptParts.join('\\n');
 
             console.log('Calling OpenRouter API for summarization...');
@@ -137,7 +204,7 @@ jobs:
                   'Authorization': `Bearer ${{ secrets.OPENROUTER_API_KEY }}`,
                   'Content-Type': 'application/json',
                   'HTTP-Referer': 'https://github.com',
-                  'X-Title': 'A3D Repository Activity Summary'
+                  'X-Title': 'Repository Activity Summary'
                 },
                 body: JSON.stringify({
                   model: 'anthropic/claude-3-haiku',
@@ -165,7 +232,7 @@ jobs:
               console.error('Failed to generate AI summary:', error);
               
               // Fallback to manual summary if AI fails
-              const fallbackParts = [
+              const fallbackParts = language === 'italian' ? [
                 '## Riassunto Attività Repository - Ultimi ' + daysBack + ' Giorni',
                 '',
                 '### Panoramica',
@@ -178,24 +245,50 @@ jobs:
                 recentPRs.length > 0 ? recentPRs.map(pr => '- #' + pr.number + ': ' + pr.title + ' (' + (pr.merged ? 'merged' : 'chiusa') + ')').join('\\n') : 'Nessuna pull request chiusa in questo periodo.',
                 '',
                 '*Nota: La generazione automatica del riassunto è fallita, vengono mostrati i dati grezzi.*'
+              ] : [
+                '## Repository Activity Summary - Last ' + daysBack + ' Days',
+                '',
+                '### Overview',
+                'This is an automatic summary of repository activities from ' + new Date(since).toLocaleDateString('en-US') + ' to ' + new Date().toLocaleDateString('en-US') + '.',
+                '',
+                '### Closed Issues (' + actualIssues.length + ')',
+                actualIssues.length > 0 ? actualIssues.map(issue => '- #' + issue.number + ': ' + issue.title).join('\\n') : 'No issues closed in this period.',
+                '',
+                '### Closed Pull Requests (' + recentPRs.length + ')',
+                recentPRs.length > 0 ? recentPRs.map(pr => '- #' + pr.number + ': ' + pr.title + ' (' + (pr.merged ? 'merged' : 'closed') + ')').join('\\n') : 'No pull requests closed in this period.',
+                '',
+                '*Note: Automatic summary generation failed, showing raw data.*'
               ];
               summaryContent = fallbackParts.join('\\n');
             }
             
             // Create the summary issue
-            const issueTitle = '[RIASSUNTO] - ultimi ' + daysBack + ' giorni';
+            const issueTitle = language === 'italian' ? 
+              '[RIASSUNTO] - ultimi ' + daysBack + ' giorni' : 
+              '[SUMMARY] - last ' + daysBack + ' days';
+            
             const issueBodyParts = [
               summaryContent,
               '',
               '---',
               '',
-              '**Dettagli Riassunto Automatico:**',
-              '- **Periodo:** ' + new Date(since).toLocaleDateString('it-IT') + ' - ' + new Date().toLocaleDateString('it-IT'),
-              '- **Issues Chiuse:** ' + actualIssues.length,
-              '- **Pull Request Chiuse:** ' + recentPRs.length,
-              '- **Generato:** ' + new Date().toLocaleString('it-IT'),
+              language === 'italian' ? '**Dettagli Riassunto Automatico:**' : '**Automatic Summary Details:**',
+              language === 'italian' ? 
+                '- **Periodo:** ' + new Date(since).toLocaleDateString('it-IT') + ' - ' + new Date().toLocaleDateString('it-IT') :
+                '- **Period:** ' + new Date(since).toLocaleDateString('en-US') + ' - ' + new Date().toLocaleDateString('en-US'),
+              language === 'italian' ? 
+                '- **Issues Chiuse:** ' + actualIssues.length :
+                '- **Closed Issues:** ' + actualIssues.length,
+              language === 'italian' ? 
+                '- **Pull Request Chiuse:** ' + recentPRs.length :
+                '- **Closed Pull Requests:** ' + recentPRs.length,
+              language === 'italian' ? 
+                '- **Generato:** ' + new Date().toLocaleString('it-IT') :
+                '- **Generated:** ' + new Date().toLocaleString('en-US'),
               '',
-              '*Questo riassunto è stato generato automaticamente dal workflow Activity Summary.*'
+              language === 'italian' ? 
+                '*Questo riassunto è stato generato automaticamente dal workflow Activity Summary.*' :
+                '*This summary was automatically generated by the Activity Summary workflow.*'
             ];
             const issueBody = issueBodyParts.join('\\n');
 
@@ -206,13 +299,19 @@ jobs:
               repo,
               title: issueTitle,
               body: issueBody,
-              labels: ['TOPIC']
+              labels: ['${{ inputs.label }}']
             });
             
             console.log(`Summary issue created: #${newIssue.data.number}`);
             console.log(`URL: ${newIssue.data.html_url}`);
             
-            // Set output for potential further processing
+            // Set outputs
+            core.setOutput('issue_number', newIssue.data.number);
+            core.setOutput('issue_url', newIssue.data.html_url);
+            core.setOutput('issues_count', actualIssues.length);
+            core.setOutput('pull_requests_count', recentPRs.length);
+            
+            // Return result for logging
             return {
               issueNumber: newIssue.data.number,
               issueUrl: newIssue.data.html_url,
