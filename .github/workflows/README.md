@@ -166,6 +166,49 @@ jobs:
 - `branches_skipped`: Number of branches skipped (protected or not found)
 - `error_count`: Number of errors encountered
 
+### 5. Generate Activity Summary (`issue-summary.yml`)
+
+Generates AI-powered activity summaries of closed issues and pull requests for a specified time period.
+
+**Usage:**
+```yaml
+name: Generate Weekly Summary
+on:
+  schedule:
+    - cron: "0 8 * * 1"  # Monday at 8 AM UTC
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Number of days to look back"
+        required: false
+        default: "7"
+        type: string
+
+jobs:
+  generate-summary:
+    uses: giobi/actions/.github/workflows/issue-summary.yml@main
+    with:
+      days: ${{ github.event.inputs.days || '7' }}
+      language: "italian"
+      label: "TOPIC"
+    secrets:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+```
+
+**Inputs:**
+- `days` (optional): Number of days to look back for closed issues and PRs (default: "7")
+- `language` (optional): Language for the summary - "italian" or "english" (default: "italian")
+- `label` (optional): Label to apply to the created summary issue (default: "TOPIC")
+
+**Secrets:**
+- `OPENROUTER_API_KEY` (required): OpenRouter API key for AI summary generation
+
+**Outputs:**
+- `issue_number`: Number of the created summary issue
+- `issue_url`: URL of the created summary issue
+- `issues_count`: Number of closed issues found
+- `pull_requests_count`: Number of closed pull requests found
+
 ## General Usage Guidelines
 
 1. **Reference the workflow**: Use the format `owner/repo/.github/workflows/workflow-file.yml@ref`
