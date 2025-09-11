@@ -1,8 +1,8 @@
 ---
-name: Application Update
+name: Reusable Laravel Application Update
 
 "on":
-  workflow_dispatch:
+  workflow_call:
     inputs:
       command:
         description: "Command to execute (default: php update.php --force)"
@@ -10,82 +10,110 @@ name: Application Update
         default: "php update.php --force"
         type: string
       environment:
-        type: environment
-        description: Select target environment
+        description: "Target environment for update"
         required: true
+        type: string
+      ssh_host:
+        description: "SSH host/server address"
+        required: true
+        type: string
+      ssh_user:
+        description: "SSH username"
+        required: true
+        type: string
+      ssh_port:
+        description: "SSH port (default: 22)"
+        required: false
+        default: "22"
+        type: string
+      project_path:
+        description: "Path to project directory on server"
+        required: false
+        default: ""
+        type: string
+    secrets:
+      SSH_PRIVATE_KEY:
+        description: "SSH private key for server access"
+        required: true
+    outputs:
+      update_status:
+        description: "Status of the update operation (success/failure)"
+        value: ${{ jobs.update.outputs.update_status }}
+      command_executed:
+        description: "Command that was executed"
+        value: ${{ jobs.update.outputs.command_executed }}
+      project_path_used:
+        description: "Project path that was used"
+        value: ${{ jobs.update.outputs.project_path_used }}
 
 jobs:
   update:
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
+    outputs:
+      update_status: ${{ steps.execute-update.outputs.update_status }}
+      command_executed: ${{ steps.execute-update.outputs.command_executed }}
+      project_path_used: ${{ steps.execute-update.outputs.project_path_used }}
 
     steps:
-      - name: Parse USERHOST and Execute Update Command
+      - name: Execute Update Command via SSH
+        id: execute-update
         run: |
-          # Parse the USERHOST variable (format: user@host:port/path/to/project)
-          USERHOST="${{ vars.USERHOST }}"
-          echo "DEBUG: USERHOST = '$USERHOST'"
+          set -e  # Exit on any error
           
-          if [ -z "$USERHOST" ]; then
-              echo "ERROR: USERHOST environment variable is not set"
-              exit 1
-          fi
+          # Set initial status
+          UPDATE_STATUS="failure"
           
-          # Extract user (before @)
-          USER=$(echo "$USERHOST" | cut -d'@' -f1)
-          echo "DEBUG: USER = '$USER'"
+          # Get input values
+          HOST="${{ inputs.ssh_host }}"
+          USER="${{ inputs.ssh_user }}"
+          PORT="${{ inputs.ssh_port }}"
+          PROJECT_PATH="${{ inputs.project_path }}"
+          COMMAND="${{ inputs.command }}"
           
-          # Extract host and port/path part (after @)
-          HOST_AND_REST=$(echo "$USERHOST" | cut -d'@' -f2)
-          
-          # Extract host (before : or /)
-          if [[ "$HOST_AND_REST" == *":"* ]]; then
-              # Has port
-              HOST=$(echo "$HOST_AND_REST" | cut -d':' -f1)
-              PORT_AND_PATH=$(echo "$HOST_AND_REST" | cut -d':' -f2)
-              
-              # Extract port (before /)
-              if [[ "$PORT_AND_PATH" == *"/"* ]]; then
-                  PORT=$(echo "$PORT_AND_PATH" | cut -d'/' -f1)
-                  PROJECT_PATH="/$(echo "$PORT_AND_PATH" | cut -d'/' -f2-)"
-              else
-                  PORT="$PORT_AND_PATH"
-                  PROJECT_PATH=""
-              fi
-          else
-              # No port, check for path
-              if [[ "$HOST_AND_REST" == *"/"* ]]; then
-                  HOST=$(echo "$HOST_AND_REST" | cut -d'/' -f1)
-                  PROJECT_PATH="/$(echo "$HOST_AND_REST" | cut -d'/' -f2-)"
-                  PORT="22"
-              else
-                  HOST="$HOST_AND_REST"
-                  PROJECT_PATH=""
-                  PORT="22"
-              fi
-          fi
-          
-          echo "DEBUG: HOST = '$HOST'"
-          echo "DEBUG: PORT = '$PORT'"
-          echo "DEBUG: PROJECT_PATH = '$PROJECT_PATH'"
+          echo "=== SSH Connection Details ==="
+          echo "Host: $HOST"
+          echo "User: $USER"
+          echo "Port: $PORT"
+          echo "Project Path: $PROJECT_PATH"
+          echo "Command: $COMMAND"
+          echo "============================="
           
           # Setup SSH key
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          echo "${{ secrets.SSHPRIVATE }}" > ~/.ssh/id_rsa
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           
           # Add host to known_hosts
+          echo "Adding host to known_hosts..."
           ssh-keyscan -p "$PORT" -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
           
           # Execute the command via SSH
-          COMMAND="${{ inputs.command }}"
           echo "Executing command: $COMMAND"
           
           if [ -n "$PROJECT_PATH" ]; then
+              echo "Executing in project directory: $PROJECT_PATH"
               ssh -i ~/.ssh/id_rsa -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
                   "cd \"$PROJECT_PATH\" && echo \"Current directory: \$(pwd)\" && $COMMAND"
           else
+              echo "Executing in home directory"
               ssh -i ~/.ssh/id_rsa -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
                   "echo \"Current directory: \$(pwd)\" && $COMMAND"
           fi
+          
+          # If we get here, the command was successful
+          UPDATE_STATUS="success"
+          echo "=== Update completed successfully! ==="
+          
+          # Set outputs
+          echo "update_status=$UPDATE_STATUS" >> $GITHUB_OUTPUT
+          echo "command_executed=$COMMAND" >> $GITHUB_OUTPUT
+          echo "project_path_used=$PROJECT_PATH" >> $GITHUB_OUTPUT
+          
+      - name: Set step outputs on failure
+        if: failure()
+        run: |
+          echo "update_status=failure" >> $GITHUB_OUTPUT
+          echo "command_executed=${{ inputs.command }}" >> $GITHUB_OUTPUT
+          echo "project_path_used=${{ inputs.project_path }}" >> $GITHUB_OUTPUT
