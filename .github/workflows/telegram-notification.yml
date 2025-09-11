@@ -1,0 +1,135 @@
+---
+name: Reusable Telegram Notification
+
+"on":
+  workflow_call:
+    inputs:
+      message:
+        description: "Message to send to Telegram"
+        required: true
+        type: string
+      parse_mode:
+        description: "Message parse mode (HTML, Markdown, MarkdownV2)"
+        required: false
+        default: "HTML"
+        type: string
+      disable_web_page_preview:
+        description: "Disable web page preview for links in the message"
+        required: false
+        default: false
+        type: boolean
+      disable_notification:
+        description: "Send message silently (users will receive notification with no sound)"
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      TELEGRAM_SECRET:
+        description: "Telegram bot token"
+        required: true
+      TELEGRAM_CHAT:
+        description: "Telegram chat ID where to send the message"
+        required: true
+    outputs:
+      success:
+        description: "Whether the notification was sent successfully"
+        value: ${{ jobs.send-telegram-notification.outputs.success }}
+      message_id:
+        description: "ID of the sent message (if successful)"
+        value: ${{ jobs.send-telegram-notification.outputs.message_id }}
+      response:
+        description: "Full API response from Telegram"
+        value: ${{ jobs.send-telegram-notification.outputs.response }}
+
+jobs:
+  send-telegram-notification:
+    runs-on: ubuntu-latest
+    outputs:
+      success: ${{ steps.send-notification.outputs.success }}
+      message_id: ${{ steps.send-notification.outputs.message_id }}
+      response: ${{ steps.send-notification.outputs.response }}
+
+    steps:
+      - name: Send Telegram Notification
+        id: send-notification
+        run: |
+          # Prepare the message data
+          MESSAGE="${{ inputs.message }}"
+          CHAT_ID="${{ secrets.TELEGRAM_CHAT }}"
+          BOT_TOKEN="${{ secrets.TELEGRAM_SECRET }}"
+          PARSE_MODE="${{ inputs.parse_mode }}"
+          DISABLE_WEB_PAGE_PREVIEW="${{ inputs.disable_web_page_preview }}"
+          DISABLE_NOTIFICATION="${{ inputs.disable_notification }}"
+          
+          # Validate required secrets
+          if [ -z "$BOT_TOKEN" ]; then
+            echo "❌ Error: TELEGRAM_SECRET is not set"
+            echo "success=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          if [ -z "$CHAT_ID" ]; then
+            echo "❌ Error: TELEGRAM_CHAT is not set"
+            echo "success=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          if [ -z "$MESSAGE" ]; then
+            echo "❌ Error: Message is empty"
+            echo "success=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          echo "📱 Sending Telegram notification..."
+          echo "Chat ID: $CHAT_ID"
+          echo "Parse mode: $PARSE_MODE"
+          echo "Disable web preview: $DISABLE_WEB_PAGE_PREVIEW"
+          echo "Silent notification: $DISABLE_NOTIFICATION"
+          
+          # Escape the message for JSON
+          ESCAPED_MESSAGE=$(echo "$MESSAGE" | jq -Rs .)
+          
+          # Build the JSON payload
+          JSON_PAYLOAD=$(cat <<EOF
+          {
+            "chat_id": "$CHAT_ID",
+            "text": $ESCAPED_MESSAGE,
+            "parse_mode": "$PARSE_MODE",
+            "disable_web_page_preview": $DISABLE_WEB_PAGE_PREVIEW,
+            "disable_notification": $DISABLE_NOTIFICATION
+          }
+          EOF
+          )
+          
+          # Send the notification to Telegram
+          RESPONSE=$(curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -d "$JSON_PAYLOAD" \
+            "https://api.telegram.org/bot$BOT_TOKEN/sendMessage")
+          
+          # Check if the request was successful
+          SUCCESS=$(echo "$RESPONSE" | jq -r '.ok // false')
+          
+          if [ "$SUCCESS" = "true" ]; then
+            MESSAGE_ID=$(echo "$RESPONSE" | jq -r '.result.message_id // ""')
+            echo "✅ Notification sent successfully!"
+            echo "Message ID: $MESSAGE_ID"
+            echo "success=true" >> $GITHUB_OUTPUT
+            echo "message_id=$MESSAGE_ID" >> $GITHUB_OUTPUT
+          else
+            ERROR_CODE=$(echo "$RESPONSE" | jq -r '.error_code // "unknown"')
+            ERROR_DESCRIPTION=$(echo "$RESPONSE" | jq -r '.description // "Unknown error"')
+            echo "❌ Failed to send notification"
+            echo "Error code: $ERROR_CODE"
+            echo "Error description: $ERROR_DESCRIPTION"
+            echo "success=false" >> $GITHUB_OUTPUT
+            echo "message_id=" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          # Store the full response (truncated for GitHub output limits)
+          RESPONSE_OUTPUT=$(echo "$RESPONSE" | head -c 1000)
+          echo "response=$RESPONSE_OUTPUT" >> $GITHUB_OUTPUT
+          
+          echo "Full API Response:"
+          echo "$RESPONSE"
