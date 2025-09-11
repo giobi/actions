@@ -21,6 +21,7 @@ The repository now provides **reusable workflows** that follow GitHub's official
 - **`issue-duplicate-check.yml`**: Remove duplicate issues based on title matching  
 - **`issue-summary.yml`**: Generate AI-powered activity summaries of repository activity
 - **`laravel-deploy.yml`**: Deploy Laravel applications via SSH git pull
+- **`laravel-update.yml`**: Execute custom update commands on Laravel applications via SSH
 - **`pr-branch-cleanup.yml`**: Delete branches from old pull requests
 
 See [`.github/workflows/README.md`](.github/workflows/README.md) for complete documentation and usage examples.

@@ -166,7 +166,57 @@ jobs:
 - `branches_skipped`: Number of branches skipped (protected or not found)
 - `error_count`: Number of errors encountered
 
-### 5. Generate Activity Summary (`issue-summary.yml`)
+### 5. Laravel Application Update (`laravel-update.yml`)
+
+Executes custom update commands on Laravel applications via SSH connection.
+
+**Usage:**
+```yaml
+name: Update Application
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: environment
+      command:
+        description: "Command to execute"
+        required: false
+        default: "php update.php --force"
+        type: string
+
+jobs:
+  update:
+    uses: giobi/actions/.github/workflows/laravel-update.yml@main
+    with:
+      command: ${{ github.event.inputs.command || 'php update.php --force' }}
+      environment: ${{ github.event.inputs.environment }}
+      ssh_host: "your.server.com"
+      ssh_user: "deploy"
+      ssh_port: "22"
+      project_path: "/var/www/html/myapp"
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+```
+
+**Inputs:**
+- `command` (optional): Command to execute on the server (default: "php update.php --force")
+- `environment` (required): Target environment for the update
+- `ssh_host` (required): SSH host/server address
+- `ssh_user` (required): SSH username for connection
+- `ssh_port` (optional): SSH port (default: "22")
+- `project_path` (optional): Path to project directory on server (default: "" - uses home directory)
+
+**Secrets:**
+- `SSH_PRIVATE_KEY` (required): SSH private key for server access
+
+**Outputs:**
+- `update_status`: Status of the update operation (success/failure)
+- `command_executed`: Command that was executed
+- `project_path_used`: Project path that was used
+
+### 6. Generate Activity Summary (`issue-summary.yml`)
 
 Generates AI-powered activity summaries of closed issues and pull requests for a specified time period.
 
