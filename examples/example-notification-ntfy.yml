@@ -1,0 +1,152 @@
+---
+name: Example ntfy.sh Notifications
+
+# This example shows various ways to use the ntfy.sh notification workflow
+on:
+  # Manual trigger for testing
+  workflow_dispatch:
+    inputs:
+      notification_type:
+        description: "Type of notification to send"
+        required: true
+        type: choice
+        options:
+          - "simple"
+          - "detailed"
+          - "deployment"
+          - "error"
+      custom_topic:
+        description: "Custom ntfy topic (optional)"
+        required: false
+        type: string
+      custom_message:
+        description: "Custom message (optional)"
+        required: false
+        type: string
+
+  # Trigger on push to main (example for deployment notifications)
+  push:
+    branches: [ main ]
+
+  # Trigger on workflow completion (example for build notifications)
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+jobs:
+  # Simple notification example
+  simple-notification:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.notification_type == 'simple'
+    uses: giobi/actions/.github/workflows/notification-ntfy.yml@main
+    with:
+      ntfy_topic: ${{ github.event.inputs.custom_topic || 'my-project-notifications' }}
+      message: ${{ github.event.inputs.custom_message || 'Hello from GitHub Actions!' }}
+
+  # Detailed notification with all features
+  detailed-notification:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.notification_type == 'detailed'
+    uses: giobi/actions/.github/workflows/notification-ntfy.yml@main
+    with:
+      ntfy_topic: ${{ github.event.inputs.custom_topic || 'my-project-detailed' }}
+      message: ${{ github.event.inputs.custom_message || 'This is a detailed notification from GitHub Actions with multiple features enabled.' }}
+      title: "🚀 GitHub Actions Notification"
+      priority: "4"
+      tags: "rocket,github,actions"
+      click_url: "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      actions: '[{"action": "view", "label": "View Logs", "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}]'
+
+  # Deployment notification example
+  deployment-notification:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.notification_type == 'deployment'
+    uses: giobi/actions/.github/workflows/notification-ntfy.yml@main
+    with:
+      ntfy_topic: ${{ github.event.inputs.custom_topic || 'deployments' }}
+      message: |
+        Deployment completed successfully!
+        
+        Repository: ${{ github.repository }}
+        Branch: ${{ github.ref_name }}
+        Commit: ${{ github.sha }}
+        Actor: ${{ github.actor }}
+      title: "✅ Deployment Success"
+      priority: "4"
+      tags: "white_check_mark,deploy"
+      click_url: "https://github.com/${{ github.repository }}/commit/${{ github.sha }}"
+
+  # Error notification example
+  error-notification:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.notification_type == 'error'
+    uses: giobi/actions/.github/workflows/notification-ntfy.yml@main
+    with:
+      ntfy_topic: ${{ github.event.inputs.custom_topic || 'errors' }}
+      message: |
+        ⚠️ An error occurred in the workflow!
+        
+        Repository: ${{ github.repository }}
+        Workflow: ${{ github.workflow }}
+        Run ID: ${{ github.run_id }}
+        
+        Please check the logs for more details.
+      title: "❌ Workflow Error"
+      priority: "5"
+      tags: "rotating_light,error,alert"
+      click_url: "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      actions: '[{"action": "view", "label": "View Logs", "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}, {"action": "http", "label": "Retry", "method": "POST", "url": "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/rerun"}]'
+
+  # Push notification (deployment success)
+  push-notification:
+    if: github.event_name == 'push'
+    uses: giobi/actions/.github/workflows/notification-ntfy.yml@main
+    with:
+      ntfy_topic: "my-project-deployments"
+      message: |
+        New code pushed to main branch!
+        
+        Commit: ${{ github.event.head_commit.message }}
+        Author: ${{ github.event.head_commit.author.name }}
+        Files changed: ${{ github.event.head_commit.added | length + github.event.head_commit.modified | length + github.event.head_commit.removed | length }}
+      title: "📦 Code Push"
+      priority: "3"
+      tags: "package,git"
+      click_url: "https://github.com/${{ github.repository }}/commit/${{ github.sha }}"
+
+  # Workflow completion notification
+  workflow-completion-notification:
+    if: github.event_name == 'workflow_run'
+    uses: giobi/actions/.github/workflows/notification-ntfy.yml@main
+    with:
+      ntfy_topic: "ci-notifications"
+      message: |
+        CI Workflow completed: ${{ github.event.workflow_run.conclusion }}
+        
+        Workflow: ${{ github.event.workflow_run.name }}
+        Branch: ${{ github.event.workflow_run.head_branch }}
+        Trigger: ${{ github.event.workflow_run.event }}
+      title: "${{ github.event.workflow_run.conclusion == 'success' && '✅ CI Success' || '❌ CI Failed' }}"
+      priority: "${{ github.event.workflow_run.conclusion == 'success' && '3' || '5' }}"
+      tags: "${{ github.event.workflow_run.conclusion == 'success' && 'white_check_mark,ci' || 'x,ci,alert' }}"
+      click_url: "https://github.com/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}"
+
+  # Notification with email forwarding
+  email-notification:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.notification_type == 'detailed'
+    uses: giobi/actions/.github/workflows/notification-ntfy.yml@main
+    with:
+      ntfy_topic: "email-forwards"
+      message: "This notification will also be sent via email"
+      title: "📧 Email + ntfy Notification"
+      priority: "3"
+      tags: "email,forward"
+      email: "admin@example.com"  # Replace with actual email
+
+  # Delayed notification example
+  delayed-notification:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.notification_type == 'deployment'
+    uses: giobi/actions/.github/workflows/notification-ntfy.yml@main
+    with:
+      ntfy_topic: "scheduled-reminders"
+      message: "This is a delayed notification that was scheduled from a GitHub Action"
+      title: "⏰ Scheduled Reminder"
+      priority: "3"
+      tags: "clock,reminder"
+      delay: "30m"  # Deliver in 30 minutes
