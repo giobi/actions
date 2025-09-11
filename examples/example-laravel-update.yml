@@ -2,7 +2,7 @@
 name: Laravel Application Update Example
 
 # This example shows how to use the reusable Laravel update workflow
-# to execute custom update commands on remote servers
+# to execute comprehensive Laravel deployment commands on remote servers
 
 on:
   # Manual trigger with input options
@@ -12,10 +12,14 @@ on:
         description: "Target environment"
         required: true
         type: environment
-      command:
-        description: "Command to execute (default: php update.php --force)"
+      git_repo:
+        description: "Git repository URL (default: current repo)"
         required: false
-        default: "php update.php --force"
+        type: string
+      git_branch:
+        description: "Git branch to deploy (default: main)"
+        required: false
+        default: "main"
         type: string
 
   # Automatic trigger (example: after deployment)
@@ -28,26 +32,34 @@ jobs:
   update-application:
     uses: giobi/actions/.github/workflows/laravel-update.yml@main
     with:
-      command: ${{ github.event.inputs.command || 'php update.php --force' }}
+      git_repo: ${{ github.event.inputs.git_repo || github.repository }}
+      git_branch: ${{ github.event.inputs.git_branch || 'main' }}
       environment: ${{ github.event.inputs.environment }}
       ssh_host: ${{ vars.SSH_HOST }}  # Use repository variable
       ssh_user: ${{ vars.SSH_USER }}  # Use repository variable
       ssh_port: ${{ vars.SSH_PORT || '22' }}  # Use repository variable with fallback
       project_path: ${{ vars.PROJECT_PATH }}  # Use repository variable
+      webserver_user: ${{ vars.WEBSERVER_USER || 'www-data' }}
+      webserver_group: ${{ vars.WEBSERVER_GROUP || 'www-data' }}
+      force: true  # Always use force mode (equivalent to --force flag)
     secrets:
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
 
-  # Example 2: Multiple environments with different commands
+  # Example 2: Multiple environments with different configurations
   update-staging:
     if: github.event.inputs.environment == 'staging' || github.event_name == 'workflow_run'
     uses: giobi/actions/.github/workflows/laravel-update.yml@main
     with:
-      command: "php artisan migrate --force && php artisan config:clear && php artisan cache:clear"
+      git_repo: "https://github.com/mycompany/myapp.git"
+      git_branch: "develop"
       environment: "staging"
       ssh_host: "staging.myapp.com"
       ssh_user: "deploy"
       ssh_port: "22"
       project_path: "/var/www/staging"
+      webserver_user: "www-data"
+      webserver_group: "www-data"
+      force: true
     secrets:
       SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_KEY }}
 
@@ -55,12 +67,16 @@ jobs:
     if: github.event.inputs.environment == 'production'
     uses: giobi/actions/.github/workflows/laravel-update.yml@main
     with:
-      command: "php artisan migrate --force && php artisan optimize"
+      git_repo: "https://github.com/mycompany/myapp.git"
+      git_branch: "main"
       environment: "production"
       ssh_host: "prod.myapp.com"
       ssh_user: "deploy"
       ssh_port: "2222"
       project_path: "/var/www/html"
+      webserver_user: "www-data" 
+      webserver_group: "www-data"
+      force: true
     secrets:
       SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
 
@@ -73,7 +89,7 @@ jobs:
       - name: Verify Update Success
         run: |
           echo "Update completed successfully!"
-          echo "Command executed: ${{ needs.update-application.outputs.command_executed }}"
+          echo "Release timestamp: ${{ needs.update-application.outputs.release_timestamp }}"
           echo "Project path: ${{ needs.update-application.outputs.project_path_used }}"
           echo "Status: ${{ needs.update-application.outputs.update_status }}"
 
@@ -85,6 +101,24 @@ jobs:
     steps:
       - name: Send Failure Notification
         run: |
-          echo "Update failed!"
-          echo "Command that failed: ${{ needs.update-application.outputs.command_executed }}"
+          echo "Laravel deployment failed!"
+          echo "Release timestamp: ${{ needs.update-application.outputs.release_timestamp }}"
+          echo "Project path: ${{ needs.update-application.outputs.project_path_used }}"
           # Add your notification logic here (Slack, email, etc.)
+
+  # Example 5: Custom webserver user/group
+  update-with-custom-permissions:
+    if: false  # Disabled by default, enable as needed
+    uses: giobi/actions/.github/workflows/laravel-update.yml@main
+    with:
+      git_repo: "https://github.com/mycompany/myapp.git"
+      git_branch: "main"
+      environment: "production"
+      ssh_host: "custom.myapp.com"
+      ssh_user: "deploy"
+      project_path: "/opt/myapp"
+      webserver_user: "nginx"     # Custom webserver user
+      webserver_group: "nginx"    # Custom webserver group
+      force: true
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
