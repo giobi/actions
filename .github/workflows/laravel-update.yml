@@ -1,0 +1,91 @@
+---
+name: Application Update
+
+"on":
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "Command to execute (default: php update.php --force)"
+        required: false
+        default: "php update.php --force"
+        type: string
+      environment:
+        type: environment
+        description: Select target environment
+        required: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Parse USERHOST and Execute Update Command
+        run: |
+          # Parse the USERHOST variable (format: user@host:port/path/to/project)
+          USERHOST="${{ vars.USERHOST }}"
+          echo "DEBUG: USERHOST = '$USERHOST'"
+          
+          if [ -z "$USERHOST" ]; then
+              echo "ERROR: USERHOST environment variable is not set"
+              exit 1
+          fi
+          
+          # Extract user (before @)
+          USER=$(echo "$USERHOST" | cut -d'@' -f1)
+          echo "DEBUG: USER = '$USER'"
+          
+          # Extract host and port/path part (after @)
+          HOST_AND_REST=$(echo "$USERHOST" | cut -d'@' -f2)
+          
+          # Extract host (before : or /)
+          if [[ "$HOST_AND_REST" == *":"* ]]; then
+              # Has port
+              HOST=$(echo "$HOST_AND_REST" | cut -d':' -f1)
+              PORT_AND_PATH=$(echo "$HOST_AND_REST" | cut -d':' -f2)
+              
+              # Extract port (before /)
+              if [[ "$PORT_AND_PATH" == *"/"* ]]; then
+                  PORT=$(echo "$PORT_AND_PATH" | cut -d'/' -f1)
+                  PROJECT_PATH="/$(echo "$PORT_AND_PATH" | cut -d'/' -f2-)"
+              else
+                  PORT="$PORT_AND_PATH"
+                  PROJECT_PATH=""
+              fi
+          else
+              # No port, check for path
+              if [[ "$HOST_AND_REST" == *"/"* ]]; then
+                  HOST=$(echo "$HOST_AND_REST" | cut -d'/' -f1)
+                  PROJECT_PATH="/$(echo "$HOST_AND_REST" | cut -d'/' -f2-)"
+                  PORT="22"
+              else
+                  HOST="$HOST_AND_REST"
+                  PROJECT_PATH=""
+                  PORT="22"
+              fi
+          fi
+          
+          echo "DEBUG: HOST = '$HOST'"
+          echo "DEBUG: PORT = '$PORT'"
+          echo "DEBUG: PROJECT_PATH = '$PROJECT_PATH'"
+          
+          # Setup SSH key
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.SSHPRIVATE }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          
+          # Add host to known_hosts
+          ssh-keyscan -p "$PORT" -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          
+          # Execute the command via SSH
+          COMMAND="${{ inputs.command }}"
+          echo "Executing command: $COMMAND"
+          
+          if [ -n "$PROJECT_PATH" ]; then
+              ssh -i ~/.ssh/id_rsa -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
+                  "cd \"$PROJECT_PATH\" && echo \"Current directory: \$(pwd)\" && $COMMAND"
+          else
+              ssh -i ~/.ssh/id_rsa -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
+                  "echo \"Current directory: \$(pwd)\" && $COMMAND"
+          fi
