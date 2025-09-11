@@ -166,86 +166,20 @@ jobs:
 - `branches_skipped`: Number of branches skipped (protected or not found)
 - `error_count`: Number of errors encountered
 
-### 5. Laravel Application Update (`laravel-update.yml`)
-
-Executes custom update commands on Laravel applications via SSH connection.
-
-**Usage:**
-```yaml
-name: Update Application
-on:
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: "Target environment"
-        required: true
-        type: environment
-      command:
-        description: "Command to execute"
-        required: false
-        default: "php update.php --force"
-        type: string
-
-jobs:
-  update:
-    uses: giobi/actions/.github/workflows/laravel-update.yml@main
-    with:
-      command: ${{ github.event.inputs.command || 'php update.php --force' }}
-      environment: ${{ github.event.inputs.environment }}
-      ssh_host: "your.server.com"
-      ssh_user: "deploy"
-      ssh_port: "22"
-      project_path: "/var/www/html/myapp"
-    secrets:
-      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-```
-
 **Inputs:**
-- `command` (optional): Command to execute on the server (default: "php update.php --force")
-- `environment` (required): Target environment for the update
-- `ssh_host` (required): SSH host/server address
-- `ssh_user` (required): SSH username for connection
-- `ssh_port` (optional): SSH port (default: "22")
-- `project_path` (optional): Path to project directory on server (default: "" - uses home directory)
+- `days` (optional): Number of days to look back for closed issues (default: 14)
+- `target_docs` (optional): Comma-separated list of documentation files to target (default: "readme.md,agents.md,docs/,help/")
+- `dry_run` (optional): Run in dry-run mode without creating issues (default: false)
 
 **Secrets:**
-- `SSH_PRIVATE_KEY` (required): SSH private key for server access
+- `OPENROUTER_API_KEY` (optional): OpenRouter API key for AI analysis (if not provided, uses manual analysis)
 
 **Outputs:**
-- `update_status`: Status of the update operation (success/failure)
-- `command_executed`: Command that was executed
-- `project_path_used`: Project path that was used
-
-### 6. Generate Activity Summary (`issue-summary.yml`)
-
-Generates AI-powered activity summaries of closed issues and pull requests for a specified time period.
-
-**Usage:**
-```yaml
-name: Generate Weekly Summary
-on:
-  schedule:
-    - cron: "0 8 * * 1"  # Monday at 8 AM UTC
-  workflow_dispatch:
-    inputs:
-      days:
-        description: "Number of days to look back"
-        required: false
-        default: "7"
-        type: string
-
-jobs:
-  generate-summary:
-    uses: giobi/actions/.github/workflows/issue-summary.yml@main
-    with:
-      days: ${{ github.event.inputs.days || '7' }}
-      language: "italian"
-      label: "TOPIC"
-    secrets:
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-```
-
-**Inputs:**
+- `issues_analyzed`: Number of issues analyzed
+- `features_found`: Number of feature implementations found
+- `documentation_issue_created`: Whether a documentation update issue was created
+- `documentation_issue_number`: Number of the created documentation issue
+=======
 - `days` (optional): Number of days to look back for closed issues and PRs (default: "7")
 - `language` (optional): Language for the summary - "italian" or "english" (default: "italian")
 - `label` (optional): Label to apply to the created summary issue (default: "TOPIC")
