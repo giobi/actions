@@ -1,0 +1,90 @@
+---
+name: Laravel Application Update Example
+
+# This example shows how to use the reusable Laravel update workflow
+# to execute custom update commands on remote servers
+
+on:
+  # Manual trigger with input options
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: environment
+      command:
+        description: "Command to execute (default: php update.php --force)"
+        required: false
+        default: "php update.php --force"
+        type: string
+
+  # Automatic trigger (example: after deployment)
+  # workflow_run:
+  #   workflows: ["Deploy to Production"]
+  #   types: [completed]
+
+jobs:
+  # Example 1: Basic update with manual inputs
+  update-application:
+    uses: giobi/actions/.github/workflows/laravel-update.yml@main
+    with:
+      command: ${{ github.event.inputs.command || 'php update.php --force' }}
+      environment: ${{ github.event.inputs.environment }}
+      ssh_host: ${{ vars.SSH_HOST }}  # Use repository variable
+      ssh_user: ${{ vars.SSH_USER }}  # Use repository variable
+      ssh_port: ${{ vars.SSH_PORT || '22' }}  # Use repository variable with fallback
+      project_path: ${{ vars.PROJECT_PATH }}  # Use repository variable
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+
+  # Example 2: Multiple environments with different commands
+  update-staging:
+    if: github.event.inputs.environment == 'staging' || github.event_name == 'workflow_run'
+    uses: giobi/actions/.github/workflows/laravel-update.yml@main
+    with:
+      command: "php artisan migrate --force && php artisan config:clear && php artisan cache:clear"
+      environment: "staging"
+      ssh_host: "staging.myapp.com"
+      ssh_user: "deploy"
+      ssh_port: "22"
+      project_path: "/var/www/staging"
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_KEY }}
+
+  update-production:
+    if: github.event.inputs.environment == 'production'
+    uses: giobi/actions/.github/workflows/laravel-update.yml@main
+    with:
+      command: "php artisan migrate --force && php artisan optimize"
+      environment: "production"
+      ssh_host: "prod.myapp.com"
+      ssh_user: "deploy"
+      ssh_port: "2222"
+      project_path: "/var/www/html"
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
+
+  # Example 3: Chain updates with output checking
+  verify-update:
+    needs: [update-application]
+    if: needs.update-application.outputs.update_status == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Update Success
+        run: |
+          echo "Update completed successfully!"
+          echo "Command executed: ${{ needs.update-application.outputs.command_executed }}"
+          echo "Project path: ${{ needs.update-application.outputs.project_path_used }}"
+          echo "Status: ${{ needs.update-application.outputs.update_status }}"
+
+  # Example 4: Notify on failure
+  notify-failure:
+    needs: [update-application]
+    if: failure() && needs.update-application.outputs.update_status == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Failure Notification
+        run: |
+          echo "Update failed!"
+          echo "Command that failed: ${{ needs.update-application.outputs.command_executed }}"
+          # Add your notification logic here (Slack, email, etc.)

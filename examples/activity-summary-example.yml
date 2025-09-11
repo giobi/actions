@@ -1,0 +1,60 @@
+name: Weekly Activity Summary
+
+# This workflow generates an AI-powered activity summary of your repository
+# Run it weekly to keep track of closed issues and pull requests
+
+on:
+  # Run automatically every Monday at 8 AM UTC
+  schedule:
+    - cron: "0 8 * * 1"
+  
+  # Allow manual trigger with custom parameters
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Number of days to look back for closed issues and PRs"
+        required: false
+        default: "7"
+        type: string
+      language:
+        description: "Language for the summary"
+        required: false
+        default: "italian"
+        type: choice
+        options:
+          - italian
+          - english
+      label:
+        description: "Label to apply to the created summary issue"
+        required: false
+        default: "TOPIC"
+        type: string
+
+jobs:
+  generate-weekly-summary:
+    uses: giobi/actions/.github/workflows/issue-summary.yml@main
+    with:
+      days: ${{ github.event.inputs.days || '7' }}
+      language: ${{ github.event.inputs.language || 'italian' }}
+      label: ${{ github.event.inputs.label || 'TOPIC' }}
+    secrets:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+  
+  # Optional: Follow up with notifications or other actions
+  notify-completion:
+    runs-on: ubuntu-latest
+    needs: generate-weekly-summary
+    if: always()
+    steps:
+      - name: Log Summary Results
+        run: |
+          echo "Summary issue created: #${{ needs.generate-weekly-summary.outputs.issue_number }}"
+          echo "Summary URL: ${{ needs.generate-weekly-summary.outputs.issue_url }}"
+          echo "Issues processed: ${{ needs.generate-weekly-summary.outputs.issues_count }}"
+          echo "PRs processed: ${{ needs.generate-weekly-summary.outputs.pull_requests_count }}"
+
+      # Example: Send notification to Slack, Discord, etc.
+      # - name: Notify Team
+      #   uses: some-notification-action
+      #   with:
+      #     message: "Weekly activity summary created: ${{ needs.generate-weekly-summary.outputs.issue_url }}"
