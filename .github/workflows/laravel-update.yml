@@ -4,10 +4,14 @@ name: Reusable Laravel Application Update
 "on":
   workflow_call:
     inputs:
-      command:
-        description: "Command to execute (default: php update.php --force)"
+      git_repo:
+        description: "Git repository URL for deployment"
+        required: true
+        type: string
+      git_branch:
+        description: "Git branch to deploy (default: main)"
         required: false
-        default: "php update.php --force"
+        default: "main"
         type: string
       environment:
         description: "Target environment for update"
@@ -28,9 +32,23 @@ name: Reusable Laravel Application Update
         type: string
       project_path:
         description: "Path to project directory on server"
-        required: false
-        default: ""
+        required: true
         type: string
+      webserver_user:
+        description: "Webserver user for permissions (default: www-data)"
+        required: false
+        default: "www-data"
+        type: string
+      webserver_group:
+        description: "Webserver group for permissions (default: www-data)"
+        required: false
+        default: "www-data"
+        type: string
+      force:
+        description: "Force deployment without confirmation (equivalent to --force flag)"
+        required: false
+        default: true
+        type: boolean
     secrets:
       SSH_PRIVATE_KEY:
         description: "SSH private key for server access"
@@ -39,9 +57,9 @@ name: Reusable Laravel Application Update
       update_status:
         description: "Status of the update operation (success/failure)"
         value: ${{ jobs.update.outputs.update_status }}
-      command_executed:
-        description: "Command that was executed"
-        value: ${{ jobs.update.outputs.command_executed }}
+      release_timestamp:
+        description: "Timestamp of the deployed release"
+        value: ${{ jobs.update.outputs.release_timestamp }}
       project_path_used:
         description: "Project path that was used"
         value: ${{ jobs.update.outputs.project_path_used }}
@@ -51,33 +69,37 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     outputs:
-      update_status: ${{ steps.execute-update.outputs.update_status }}
-      command_executed: ${{ steps.execute-update.outputs.command_executed }}
-      project_path_used: ${{ steps.execute-update.outputs.project_path_used }}
+      update_status: ${{ steps.cleanup.outputs.update_status }}
+      release_timestamp: ${{ steps.setup.outputs.release_timestamp }}
+      project_path_used: ${{ steps.setup.outputs.project_path_used }}
 
     steps:
-      - name: Execute Update Command via SSH
-        id: execute-update
+      - name: Setup Deployment Variables
+        id: setup
         run: |
-          set -e  # Exit on any error
+          set -e
           
-          # Set initial status
-          UPDATE_STATUS="failure"
+          # Generate timestamp for release
+          TIMESTAMP=$(date +'%Y%m%d%H%M%S')
+          echo "release_timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
+          echo "project_path_used=${{ inputs.project_path }}" >> $GITHUB_OUTPUT
           
-          # Get input values
-          HOST="${{ inputs.ssh_host }}"
-          USER="${{ inputs.ssh_user }}"
-          PORT="${{ inputs.ssh_port }}"
-          PROJECT_PATH="${{ inputs.project_path }}"
-          COMMAND="${{ inputs.command }}"
-          
-          echo "=== SSH Connection Details ==="
-          echo "Host: $HOST"
-          echo "User: $USER"
-          echo "Port: $PORT"
-          echo "Project Path: $PROJECT_PATH"
-          echo "Command: $COMMAND"
-          echo "============================="
+          echo "=== Deployment Configuration ==="
+          echo "Git Repository: ${{ inputs.git_repo }}"
+          echo "Git Branch: ${{ inputs.git_branch }}"
+          echo "SSH Host: ${{ inputs.ssh_host }}"
+          echo "SSH User: ${{ inputs.ssh_user }}"
+          echo "SSH Port: ${{ inputs.ssh_port }}"
+          echo "Project Path: ${{ inputs.project_path }}"
+          echo "Release Timestamp: $TIMESTAMP"
+          echo "Force Deployment: ${{ inputs.force }}"
+          echo "Webserver User: ${{ inputs.webserver_user }}"
+          echo "Webserver Group: ${{ inputs.webserver_group }}"
+          echo "=========================="
+
+      - name: Setup SSH Configuration
+        run: |
+          set -e
           
           # Setup SSH key
           mkdir -p ~/.ssh
@@ -87,33 +109,296 @@ jobs:
           
           # Add host to known_hosts
           echo "Adding host to known_hosts..."
-          ssh-keyscan -p "$PORT" -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -p "${{ inputs.ssh_port }}" -H "${{ inputs.ssh_host }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Validate Environment and Prerequisites  
+        run: |
+          set -e
           
-          # Execute the command via SSH
-          echo "Executing command: $COMMAND"
+          echo "=== Validating server environment ==="
+          ssh -i ~/.ssh/id_rsa -p "${{ inputs.ssh_port }}" -o StrictHostKeyChecking=no \
+            "${{ inputs.ssh_user }}@${{ inputs.ssh_host }}" \
+            'bash -s' << 'EOF'
           
-          if [ -n "$PROJECT_PATH" ]; then
-              echo "Executing in project directory: $PROJECT_PATH"
-              ssh -i ~/.ssh/id_rsa -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
-                  "cd \"$PROJECT_PATH\" && echo \"Current directory: \$(pwd)\" && $COMMAND"
-          else
-              echo "Executing in home directory"
-              ssh -i ~/.ssh/id_rsa -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
-                  "echo \"Current directory: \$(pwd)\" && $COMMAND"
+          set -e
+          cd "${{ inputs.project_path }}"
+          
+          # Check if .env file exists
+          if [ ! -f ".env" ]; then
+            echo "ERROR: .env file not found in ${{ inputs.project_path }}"
+            exit 1
           fi
           
-          # If we get here, the command was successful
-          UPDATE_STATUS="success"
-          echo "=== Update completed successfully! ==="
+          # Check if required directories exist
+          if [ ! -d "releases" ]; then
+            mkdir -p releases
+            echo "Created releases directory"
+          fi
           
-          # Set outputs
-          echo "update_status=$UPDATE_STATUS" >> $GITHUB_OUTPUT
-          echo "command_executed=$COMMAND" >> $GITHUB_OUTPUT
-          echo "project_path_used=$PROJECT_PATH" >> $GITHUB_OUTPUT
+          if [ ! -d "publicstorage" ]; then
+            mkdir -p publicstorage
+            chmod 755 publicstorage
+            echo "Created publicstorage directory"
+          fi
           
-      - name: Set step outputs on failure
+          # Check for required commands
+          command -v git >/dev/null 2>&1 || { echo "ERROR: git is required but not installed"; exit 1; }
+          command -v composer >/dev/null 2>&1 || { echo "ERROR: composer is required but not installed"; exit 1; }
+          command -v php >/dev/null 2>&1 || { echo "ERROR: php is required but not installed"; exit 1; }
+          
+          echo "Environment validation completed successfully"
+          EOF
+
+      - name: Clone Repository and Setup Release
+        run: |
+          set -e
+          
+          echo "=== Cloning repository and setting up release ==="
+          ssh -i ~/.ssh/id_rsa -p "${{ inputs.ssh_port }}" -o StrictHostKeyChecking=no \
+            "${{ inputs.ssh_user }}@${{ inputs.ssh_host }}" \
+            'bash -s' << 'EOF'
+          
+          set -e
+          cd "${{ inputs.project_path }}"
+          
+          TIMESTAMP="${{ steps.setup.outputs.release_timestamp }}"
+          RELEASE_DIR="releases/$TIMESTAMP"
+          
+          echo "Cloning ${{ inputs.git_repo }} (branch: ${{ inputs.git_branch }}) to $RELEASE_DIR"
+          
+          # Clone the repository
+          git clone -b "${{ inputs.git_branch }}" --single-branch "${{ inputs.git_repo }}" "$RELEASE_DIR"
+          
+          if [ $? -ne 0 ]; then
+            echo "ERROR: Failed to clone repository"
+            exit 1
+          fi
+          
+          echo "Repository cloned successfully to $RELEASE_DIR"
+          EOF
+
+      - name: Create Directory Structure and Set Permissions
+        run: |
+          set -e
+          
+          echo "=== Creating directory structure and setting permissions ==="
+          ssh -i ~/.ssh/id_rsa -p "${{ inputs.ssh_port }}" -o StrictHostKeyChecking=no \
+            "${{ inputs.ssh_user }}@${{ inputs.ssh_host }}" \
+            'bash -s' << 'EOF'
+          
+          set -e
+          cd "${{ inputs.project_path }}"
+          
+          TIMESTAMP="${{ steps.setup.outputs.release_timestamp }}"
+          RELEASE_DIR="releases/$TIMESTAMP"
+          
+          # Create required Laravel directories
+          mkdir -p "$RELEASE_DIR/storage/framework/sessions"
+          mkdir -p "$RELEASE_DIR/storage/framework/views" 
+          mkdir -p "$RELEASE_DIR/storage/framework/cache"
+          mkdir -p "$RELEASE_DIR/storage/logs"
+          mkdir -p "$RELEASE_DIR/bootstrap/cache"
+          
+          echo "Created Laravel directory structure"
+          
+          # Create symbolic links
+          ln -sf "$PWD/.env" "$RELEASE_DIR/.env"
+          ln -sf "$PWD/publicstorage" "$RELEASE_DIR/public/storage"
+          ln -sf "$PWD/publicstorage" "$RELEASE_DIR/storage/app/public"
+          
+          echo "Created symbolic links for .env and storage"
+          
+          # Set permissions
+          chmod -R gu+w publicstorage
+          chmod -R guo+w publicstorage
+          chmod -R gu+w "$RELEASE_DIR/storage/framework"
+          chmod -R guo+w "$RELEASE_DIR/storage/framework"
+          chmod -R guo+w "$RELEASE_DIR/storage/logs"
+          chmod -R 775 "$RELEASE_DIR/bootstrap/cache"
+          
+          # Set ownership
+          chown -R ${{ inputs.webserver_user }}:${{ inputs.webserver_group }} "$RELEASE_DIR/storage"
+          chown -R ${{ inputs.webserver_user }}:${{ inputs.webserver_group }} "$RELEASE_DIR/bootstrap/cache"
+          chmod -R 775 "$RELEASE_DIR/storage"
+          chmod -R 775 "$RELEASE_DIR/bootstrap/cache"
+          
+          echo "Set permissions and ownership"
+          EOF
+
+      - name: Install Dependencies with Composer
+        run: |
+          set -e
+          
+          echo "=== Installing dependencies with Composer ==="
+          ssh -i ~/.ssh/id_rsa -p "${{ inputs.ssh_port }}" -o StrictHostKeyChecking=no \
+            "${{ inputs.ssh_user }}@${{ inputs.ssh_host }}" \
+            'bash -s' << 'EOF'
+          
+          set -e
+          cd "${{ inputs.project_path }}"
+          
+          TIMESTAMP="${{ steps.setup.outputs.release_timestamp }}"
+          RELEASE_DIR="releases/$TIMESTAMP"
+          
+          echo "Running composer update in $RELEASE_DIR"
+          cd "$RELEASE_DIR"
+          
+          composer update --no-dev --optimize-autoloader --no-interaction
+          
+          if [ $? -ne 0 ]; then
+            echo "ERROR: Composer update failed"
+            exit 1
+          fi
+          
+          echo "Composer dependencies installed successfully"
+          EOF
+
+      - name: Cache Laravel Configuration and Routes
+        run: |
+          set -e
+          
+          echo "=== Caching Laravel configuration, routes, and views ==="
+          ssh -i ~/.ssh/id_rsa -p "${{ inputs.ssh_port }}" -o StrictHostKeyChecking=no \
+            "${{ inputs.ssh_user }}@${{ inputs.ssh_host }}" \
+            'bash -s' << 'EOF'
+          
+          set -e
+          cd "${{ inputs.project_path }}"
+          
+          TIMESTAMP="${{ steps.setup.outputs.release_timestamp }}"
+          RELEASE_DIR="releases/$TIMESTAMP"
+          
+          cd "$RELEASE_DIR"
+          
+          echo "Generating configuration cache..."
+          php artisan config:cache
+          
+          echo "Generating route cache..."
+          php artisan route:cache
+          
+          echo "Generating view cache..."
+          php artisan view:cache
+          
+          echo "Laravel caches generated successfully"
+          EOF
+
+      - name: Run Database Migrations
+        run: |
+          set -e
+          
+          echo "=== Running database migrations ==="
+          ssh -i ~/.ssh/id_rsa -p "${{ inputs.ssh_port }}" -o StrictHostKeyChecking=no \
+            "${{ inputs.ssh_user }}@${{ inputs.ssh_host }}" \
+            'bash -s' << 'EOF'
+          
+          set -e
+          cd "${{ inputs.project_path }}"
+          
+          TIMESTAMP="${{ steps.setup.outputs.release_timestamp }}"
+          RELEASE_DIR="releases/$TIMESTAMP"
+          
+          cd "$RELEASE_DIR"
+          
+          echo "Running database migrations..."
+          php artisan migrate ${{ inputs.force == true && '--force' || '' }}
+          
+          if [ $? -ne 0 ]; then
+            echo "ERROR: Database migrations failed"
+            exit 1
+          fi
+          
+          echo "Database migrations completed successfully"
+          EOF
+
+      - name: Execute Post-Deploy Commands
+        run: |
+          set -e
+          
+          echo "=== Executing post-deploy commands ==="
+          ssh -i ~/.ssh/id_rsa -p "${{ inputs.ssh_port }}" -o StrictHostKeyChecking=no \
+            "${{ inputs.ssh_user }}@${{ inputs.ssh_host }}" \
+            'bash -s' << 'EOF'
+          
+          set -e
+          cd "${{ inputs.project_path }}"
+          
+          TIMESTAMP="${{ steps.setup.outputs.release_timestamp }}"
+          RELEASE_DIR="releases/$TIMESTAMP"
+          
+          cd "$RELEASE_DIR"
+          
+          echo "Running post-deploy command..."
+          php artisan app:postdeploy || echo "Post-deploy command not found or failed, skipping..."
+          
+          echo "Clearing optimization caches..."
+          php artisan optimize:clear
+          
+          echo "Post-deploy commands completed"
+          EOF
+
+      - name: Update Current Symlink and Setup Deploy Trigger
+        run: |
+          set -e
+          
+          echo "=== Updating current symlink and setting up deploy trigger ==="
+          ssh -i ~/.ssh/id_rsa -p "${{ inputs.ssh_port }}" -o StrictHostKeyChecking=no \
+            "${{ inputs.ssh_user }}@${{ inputs.ssh_host }}" \
+            'bash -s' << 'EOF'
+          
+          set -e
+          cd "${{ inputs.project_path }}"
+          
+          TIMESTAMP="${{ steps.setup.outputs.release_timestamp }}"
+          RELEASE_DIR="releases/$TIMESTAMP"
+          
+          # Update current symlink
+          if [ -L "current" ]; then
+            unlink current
+          fi
+          ln -sf "$RELEASE_DIR" current
+          
+          echo "Updated current symlink to point to $RELEASE_DIR"
+          
+          # Create deploy trigger directory and files
+          mkdir -p "$RELEASE_DIR/public/deploy"
+          
+          # Create deploy data file
+          echo "{" > "$RELEASE_DIR/public/deploy/data.json"
+          echo "    \"timestamp\": \"$(date '+%Y-%m-%d %H:%M:%S')\"," >> "$RELEASE_DIR/public/deploy/data.json"
+          echo "    \"release\": \"$TIMESTAMP\"" >> "$RELEASE_DIR/public/deploy/data.json"
+          echo "}" >> "$RELEASE_DIR/public/deploy/data.json"
+          
+          echo "Created deploy trigger and data files"
+          EOF
+
+      - name: Cleanup Old Releases
+        id: cleanup
+        run: |
+          set -e
+          
+          echo "=== Cleaning up old releases ==="
+          ssh -i ~/.ssh/id_rsa -p "${{ inputs.ssh_port }}" -o StrictHostKeyChecking=no \
+            "${{ inputs.ssh_user }}@${{ inputs.ssh_host }}" \
+            'bash -s' << 'EOF'
+          
+          set -e
+          cd "${{ inputs.project_path }}/releases"
+          
+          # Keep only the 5 most recent releases
+          ls -1t | tail -n +6 | while read old_release; do
+            echo "Removing old release: $old_release"
+            rm -rf "$old_release"
+          done
+          
+          echo "Old releases cleanup completed"
+          EOF
+          
+          # Set success status
+          echo "update_status=success" >> $GITHUB_OUTPUT
+          echo "=== Laravel deployment completed successfully! ==="
+
+      - name: Set Failure Status
         if: failure()
         run: |
           echo "update_status=failure" >> $GITHUB_OUTPUT
-          echo "command_executed=${{ inputs.command }}" >> $GITHUB_OUTPUT
-          echo "project_path_used=${{ inputs.project_path }}" >> $GITHUB_OUTPUT
+          echo "=== Laravel deployment failed! ==="
