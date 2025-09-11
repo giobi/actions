@@ -118,7 +118,51 @@ jobs:
 - `branch_deployed`: Branch that was deployed
 - `post_commands_run`: Whether post-deployment commands were executed
 
-### 4. PR Branch Cleanup (`pr-branch-cleanup.yml`)
+### 4. ntfy.sh Notifications (`notification-ntfy.yml`)
+
+Send notifications to ntfy.sh topics for real-time alerts and updates.
+
+**Usage:**
+```yaml
+name: Send ntfy Notification
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: "Notification message"
+        required: true
+        type: string
+
+jobs:
+  notify:
+    uses: giobi/actions/.github/workflows/notification-ntfy.yml@main
+    with:
+      ntfy_topic: "my-project-alerts"
+      message: ${{ github.event.inputs.message }}
+      title: "🚀 GitHub Actions"
+      priority: "4"
+      tags: "rocket,github"
+      click_url: "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+```
+
+**Inputs:**
+- `ntfy_topic` (required): ntfy.sh topic name to send notification to
+- `message` (required): Notification message body
+- `title` (optional): Notification title
+- `priority` (optional): Message priority (1=min, 2=low, 3=default, 4=high, 5=max)
+- `tags` (optional): Comma-separated list of tags/emojis
+- `actions` (optional): JSON string of actions (buttons/links)
+- `click_url` (optional): URL to open when notification is clicked
+- `attach_url` (optional): URL of attachment to include
+- `delay` (optional): Delay delivery (e.g., '30m', '2h', '1d')
+- `email` (optional): Email address for email forwarding
+
+**Outputs:**
+- `notification_status`: Status of the notification (success/failure)
+- `ntfy_response`: Response from ntfy.sh API
+- `topic_used`: Topic that was used for the notification
+
+### 5. PR Branch Cleanup (`pr-branch-cleanup.yml`)
 
 Automatically deletes branches from old pull requests to keep the repository clean.
 
