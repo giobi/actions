@@ -1,0 +1,172 @@
+---
+name: Reusable ntfy.sh Notification
+
+"on":
+  workflow_call:
+    inputs:
+      ntfy_topic:
+        description: "ntfy.sh topic name to send notification to"
+        required: true
+        type: string
+      message:
+        description: "Notification message body"
+        required: true
+        type: string
+      title:
+        description: "Notification title"
+        required: false
+        type: string
+      priority:
+        description: "Message priority (1=min, 2=low, 3=default, 4=high, 5=max)"
+        required: false
+        default: "3"
+        type: string
+      tags:
+        description: "Comma-separated list of tags/emojis"
+        required: false
+        type: string
+      actions:
+        description: "JSON string of actions (buttons/links)"
+        required: false
+        type: string
+      click_url:
+        description: "URL to open when notification is clicked"
+        required: false
+        type: string
+      attach_url:
+        description: "URL of attachment to include"
+        required: false
+        type: string
+      delay:
+        description: "Delay delivery (e.g., '30m', '2h', '1d')"
+        required: false
+        type: string
+      email:
+        description: "Email address for email forwarding"
+        required: false
+        type: string
+    outputs:
+      notification_status:
+        description: "Status of the notification (success/failure)"
+        value: ${{ jobs.send-notification.outputs.notification_status }}
+      ntfy_response:
+        description: "Response from ntfy.sh API"
+        value: ${{ jobs.send-notification.outputs.ntfy_response }}
+      topic_used:
+        description: "Topic that was used for the notification"
+        value: ${{ jobs.send-notification.outputs.topic_used }}
+
+jobs:
+  send-notification:
+    runs-on: ubuntu-latest
+    outputs:
+      notification_status: ${{ steps.send-ntfy.outputs.notification_status }}
+      ntfy_response: ${{ steps.send-ntfy.outputs.ntfy_response }}
+      topic_used: ${{ steps.send-ntfy.outputs.topic_used }}
+
+    steps:
+      - name: Send ntfy.sh Notification
+        id: send-ntfy
+        run: |
+          set -e
+          
+          # Input validation
+          TOPIC="${{ inputs.ntfy_topic }}"
+          MESSAGE="${{ inputs.message }}"
+          
+          if [ -z "$TOPIC" ]; then
+            echo "Error: ntfy_topic is required"
+            echo "notification_status=failure" >> $GITHUB_OUTPUT
+            echo "ntfy_response=Error: ntfy_topic is required" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          if [ -z "$MESSAGE" ]; then
+            echo "Error: message is required"
+            echo "notification_status=failure" >> $GITHUB_OUTPUT
+            echo "ntfy_response=Error: message is required" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          # Prepare curl command
+          NTFY_URL="https://ntfy.sh/$TOPIC"
+          echo "Sending notification to: $NTFY_URL"
+          
+          # Build curl command with headers
+          CURL_CMD="curl -s -w '%{http_code}' -d '$MESSAGE'"
+          
+          # Add optional headers
+          if [ -n "${{ inputs.title }}" ]; then
+            CURL_CMD="$CURL_CMD -H 'Title: ${{ inputs.title }}'"
+          fi
+          
+          if [ -n "${{ inputs.priority }}" ]; then
+            CURL_CMD="$CURL_CMD -H 'Priority: ${{ inputs.priority }}'"
+          fi
+          
+          if [ -n "${{ inputs.tags }}" ]; then
+            CURL_CMD="$CURL_CMD -H 'Tags: ${{ inputs.tags }}'"
+          fi
+          
+          if [ -n "${{ inputs.actions }}" ]; then
+            CURL_CMD="$CURL_CMD -H 'Actions: ${{ inputs.actions }}'"
+          fi
+          
+          if [ -n "${{ inputs.click_url }}" ]; then
+            CURL_CMD="$CURL_CMD -H 'Click: ${{ inputs.click_url }}'"
+          fi
+          
+          if [ -n "${{ inputs.attach_url }}" ]; then
+            CURL_CMD="$CURL_CMD -H 'Attach: ${{ inputs.attach_url }}'"
+          fi
+          
+          if [ -n "${{ inputs.delay }}" ]; then
+            CURL_CMD="$CURL_CMD -H 'Delay: ${{ inputs.delay }}'"
+          fi
+          
+          if [ -n "${{ inputs.email }}" ]; then
+            CURL_CMD="$CURL_CMD -H 'Email: ${{ inputs.email }}'"
+          fi
+          
+          CURL_CMD="$CURL_CMD $NTFY_URL"
+          
+          echo "Executing: $CURL_CMD"
+          
+          # Execute curl and capture response
+          RESPONSE=$(eval $CURL_CMD)
+          HTTP_CODE="${RESPONSE: -3}"
+          RESPONSE_BODY="${RESPONSE%???}"
+          
+          echo "HTTP Status Code: $HTTP_CODE"
+          echo "Response Body: $RESPONSE_BODY"
+          
+          # Check if request was successful
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "✅ Notification sent successfully!"
+            echo "notification_status=success" >> $GITHUB_OUTPUT
+            echo "ntfy_response=HTTP $HTTP_CODE: $RESPONSE_BODY" >> $GITHUB_OUTPUT
+            echo "topic_used=$TOPIC" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Failed to send notification"
+            echo "notification_status=failure" >> $GITHUB_OUTPUT
+            echo "ntfy_response=HTTP $HTTP_CODE: $RESPONSE_BODY" >> $GITHUB_OUTPUT
+            echo "topic_used=$TOPIC" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          # Log summary
+          echo ""
+          echo "=== NOTIFICATION SUMMARY ==="
+          echo "Topic: $TOPIC"
+          echo "Message: $MESSAGE"
+          if [ -n "${{ inputs.title }}" ]; then
+            echo "Title: ${{ inputs.title }}"
+          fi
+          if [ -n "${{ inputs.priority }}" ]; then
+            echo "Priority: ${{ inputs.priority }}"
+          fi
+          if [ -n "${{ inputs.tags }}" ]; then
+            echo "Tags: ${{ inputs.tags }}"
+          fi
+          echo "Status: Success"
+          echo "=========================="
