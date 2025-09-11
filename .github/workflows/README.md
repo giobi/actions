@@ -118,6 +118,51 @@ jobs:
 - `branch_deployed`: Branch that was deployed
 - `post_commands_run`: Whether post-deployment commands were executed
 
+
+### 4. Telegram Notification (`telegram-notification.yml`)
+
+Sends notifications to Telegram using the Bot API. Requires TELEGRAM_SECRET and TELEGRAM_CHAT secrets.
+
+**Usage:**
+```yaml
+name: Send Telegram Notification
+on:
+  push:
+    branches: [main]
+
+jobs:
+  notify:
+    uses: giobi/actions/.github/workflows/telegram-notification.yml@main
+    with:
+      message: |
+        🚀 New push to ${{ github.repository }}
+        
+        Branch: ${{ github.ref_name }}
+        Author: ${{ github.actor }}
+        Commit: ${{ github.event.head_commit.message }}
+      parse_mode: "HTML"
+      disable_web_page_preview: false
+    secrets:
+      TELEGRAM_SECRET: ${{ secrets.TELEGRAM_SECRET }}
+      TELEGRAM_CHAT: ${{ secrets.TELEGRAM_CHAT }}
+```
+
+**Inputs:**
+- `message` (required): Message to send to Telegram
+- `parse_mode` (optional): Message parse mode - "HTML", "Markdown", or "MarkdownV2" (default: "HTML")
+- `disable_web_page_preview` (optional): Disable web page preview for links (default: false)
+- `disable_notification` (optional): Send message silently without sound (default: false)
+
+**Secrets:**
+- `TELEGRAM_SECRET` (required): Telegram bot token (get from @BotFather)
+- `TELEGRAM_CHAT` (required): Telegram chat ID where to send the message
+
+**Outputs:**
+- `success`: Whether the notification was sent successfully
+- `message_id`: ID of the sent message (if successful)
+- `response`: Full API response from Telegram
+
+
 ### 4. ntfy.sh Notifications (`notification-ntfy.yml`)
 
 Send notifications to ntfy.sh topics for real-time alerts and updates.
@@ -161,6 +206,7 @@ jobs:
 - `notification_status`: Status of the notification (success/failure)
 - `ntfy_response`: Response from ntfy.sh API
 - `topic_used`: Topic that was used for the notification
+
 
 ### 5. PR Branch Cleanup (`pr-branch-cleanup.yml`)
 

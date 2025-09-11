@@ -1,0 +1,153 @@
+---
+name: Example Telegram Notification Usage
+
+# This is an example of how to use the reusable Telegram notification workflow
+# Copy this to your repository's .github/workflows/ directory and customize as needed
+
+on:
+  # Manual trigger with input
+  workflow_dispatch:
+    inputs:
+      message:
+        description: "Message to send"
+        required: true
+        type: string
+      silent:
+        description: "Send silently"
+        required: false
+        default: false
+        type: boolean
+
+  # Trigger on push to main branch
+  push:
+    branches: [main]
+
+  # Trigger on release
+  release:
+    types: [published]
+
+  # Trigger on pull request events
+  pull_request:
+    types: [opened, closed, merged]
+
+  # Trigger on issues
+  issues:
+    types: [opened, closed]
+
+jobs:
+  # Manual notification
+  manual-notification:
+    if: github.event_name == 'workflow_dispatch'
+    uses: giobi/actions/.github/workflows/telegram-notification.yml@main
+    with:
+      message: ${{ github.event.inputs.message }}
+      parse_mode: "HTML"
+      disable_notification: ${{ github.event.inputs.silent == 'true' }}
+    secrets:
+      TELEGRAM_SECRET: ${{ secrets.TELEGRAM_SECRET }}
+      TELEGRAM_CHAT: ${{ secrets.TELEGRAM_CHAT }}
+
+  # Push notification
+  push-notification:
+    if: github.event_name == 'push'
+    uses: giobi/actions/.github/workflows/telegram-notification.yml@main
+    with:
+      message: |
+        🚀 <b>New push to ${{ github.repository }}</b>
+        
+        <b>Branch:</b> ${{ github.ref_name }}
+        <b>Commit:</b> <code>${{ github.sha }}</code>
+        <b>Author:</b> ${{ github.actor }}
+        <b>Message:</b> ${{ github.event.head_commit.message }}
+        
+        <a href="${{ github.event.head_commit.url }}">View commit</a>
+      parse_mode: "HTML"
+      disable_web_page_preview: false
+    secrets:
+      TELEGRAM_SECRET: ${{ secrets.TELEGRAM_SECRET }}
+      TELEGRAM_CHAT: ${{ secrets.TELEGRAM_CHAT }}
+
+  # Release notification
+  release-notification:
+    if: github.event_name == 'release'
+    uses: giobi/actions/.github/workflows/telegram-notification.yml@main
+    with:
+      message: |
+        🎉 <b>New release published!</b>
+        
+        <b>Repository:</b> ${{ github.repository }}
+        <b>Tag:</b> ${{ github.event.release.tag_name }}
+        <b>Name:</b> ${{ github.event.release.name }}
+        <b>Author:</b> ${{ github.event.release.author.login }}
+        
+        <a href="${{ github.event.release.html_url }}">View release</a>
+      parse_mode: "HTML"
+    secrets:
+      TELEGRAM_SECRET: ${{ secrets.TELEGRAM_SECRET }}
+      TELEGRAM_CHAT: ${{ secrets.TELEGRAM_CHAT }}
+
+  # Pull request notification
+  pull-request-notification:
+    if: github.event_name == 'pull_request'
+    uses: giobi/actions/.github/workflows/telegram-notification.yml@main
+    with:
+      message: |
+        🔄 <b>Pull Request ${{ github.event.action }}</b>
+        
+        <b>Repository:</b> ${{ github.repository }}
+        <b>PR #${{ github.event.pull_request.number }}:</b> ${{ github.event.pull_request.title }}
+        <b>Author:</b> ${{ github.event.pull_request.user.login }}
+        <b>Branch:</b> ${{ github.event.pull_request.head.ref }} → ${{ github.event.pull_request.base.ref }}
+        
+        <a href="${{ github.event.pull_request.html_url }}">View PR</a>
+      parse_mode: "HTML"
+    secrets:
+      TELEGRAM_SECRET: ${{ secrets.TELEGRAM_SECRET }}
+      TELEGRAM_CHAT: ${{ secrets.TELEGRAM_CHAT }}
+
+  # Issue notification
+  issue-notification:
+    if: github.event_name == 'issues'
+    uses: giobi/actions/.github/workflows/telegram-notification.yml@main
+    with:
+      message: |
+        🐛 <b>Issue ${{ github.event.action }}</b>
+        
+        <b>Repository:</b> ${{ github.repository }}
+        <b>Issue #${{ github.event.issue.number }}:</b> ${{ github.event.issue.title }}
+        <b>Author:</b> ${{ github.event.issue.user.login }}
+        
+        <a href="${{ github.event.issue.html_url }}">View issue</a>
+      parse_mode: "HTML"
+    secrets:
+      TELEGRAM_SECRET: ${{ secrets.TELEGRAM_SECRET }}
+      TELEGRAM_CHAT: ${{ secrets.TELEGRAM_CHAT }}
+
+  # Notification with error handling
+  notification-with-handling:
+    if: github.event_name == 'workflow_dispatch'
+    uses: giobi/actions/.github/workflows/telegram-notification.yml@main
+    with:
+      message: "Test notification with error handling"
+      parse_mode: "HTML"
+    secrets:
+      TELEGRAM_SECRET: ${{ secrets.TELEGRAM_SECRET }}
+      TELEGRAM_CHAT: ${{ secrets.TELEGRAM_CHAT }}
+  
+  # Handle notification result
+  handle-notification-result:
+    needs: notification-with-handling
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check notification result
+        run: |
+          echo "Notification success: ${{ needs.notification-with-handling.outputs.success }}"
+          echo "Message ID: ${{ needs.notification-with-handling.outputs.message_id }}"
+          
+          if [ "${{ needs.notification-with-handling.outputs.success }}" != "true" ]; then
+            echo "❌ Notification failed"
+            exit 1
+          else
+            echo "✅ Notification sent successfully"
+          fi
