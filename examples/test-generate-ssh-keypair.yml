@@ -5,7 +5,7 @@ on:
 
 jobs:
   test-ssh-key-generation:
-    uses: ./.github/workflows/generate-ssh-keypair.yml
+    uses: ./.github/workflows/ssh-generate-keys.yml
     with:
       private_key_secret_name: "TEST_SSH_PRIVATE"
       public_key_var_name: "TEST_SSH_PUBLIC"

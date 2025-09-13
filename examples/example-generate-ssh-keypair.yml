@@ -35,11 +35,11 @@ on:
 jobs:
   # Example 1: Basic usage with defaults
   generate-default-keys:
-    uses: giobi/actions/.github/workflows/generate-ssh-keypair.yml@main
+    uses: giobi/actions/.github/workflows/ssh-generate-keys.yml@main
 
   # Example 2: Custom key names
   generate-custom-named-keys:
-    uses: giobi/actions/.github/workflows/generate-ssh-keypair.yml@main
+    uses: giobi/actions/.github/workflows/ssh-generate-keys.yml@main
     with:
       private_key_secret_name: "DEPLOY_SSH_PRIVATE"
       public_key_var_name: "DEPLOY_SSH_PUBLIC"
@@ -47,7 +47,7 @@ jobs:
 
   # Example 3: ED25519 key generation
   generate-ed25519-keys:
-    uses: giobi/actions/.github/workflows/generate-ssh-keypair.yml@main
+    uses: giobi/actions/.github/workflows/ssh-generate-keys.yml@main
     with:
       private_key_secret_name: "ED25519_SSH_PRIVATE"
       public_key_var_name: "ED25519_SSH_PUBLIC"
@@ -56,7 +56,7 @@ jobs:
 
   # Example 4: Using workflow inputs
   generate-input-configured-keys:
-    uses: giobi/actions/.github/workflows/generate-ssh-keypair.yml@main
+    uses: giobi/actions/.github/workflows/ssh-generate-keys.yml@main
     with:
       private_key_secret_name: ${{ github.event.inputs.private_key_name }}
       public_key_var_name: ${{ github.event.inputs.public_key_name }}
