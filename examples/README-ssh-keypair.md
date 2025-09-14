@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `generate-ssh-keypair.yml` workflow provides an automated way to generate SSH key pairs and store them securely in your GitHub repository:
+The `ssh-generate-keys.yml` workflow provides an automated way to generate SSH key pairs and store them securely in your GitHub repository:
 
 - **Private key** → Stored in repository secrets (encrypted)
 - **Public key** → Stored in repository variables (accessible)
@@ -13,7 +13,7 @@ The `generate-ssh-keypair.yml` workflow provides an automated way to generate SS
 ```yaml
 jobs:
   generate-keys:
-    uses: giobi/actions/.github/workflows/generate-ssh-keypair.yml@main
+    uses: giobi/actions/.github/workflows/ssh-generate-keys.yml@main
 ```
 
 This creates:
@@ -24,7 +24,7 @@ This creates:
 ```yaml
 jobs:
   generate-deploy-keys:
-    uses: giobi/actions/.github/workflows/generate-ssh-keypair.yml@main
+    uses: giobi/actions/.github/workflows/ssh-generate-keys.yml@main
     with:
       private_key_secret_name: "DEPLOY_SSH_PRIVATE"
       public_key_var_name: "DEPLOY_SSH_PUBLIC"
@@ -34,7 +34,7 @@ jobs:
 ```yaml
 jobs:
   generate-ed25519-keys:
-    uses: giobi/actions/.github/workflows/generate-ssh-keypair.yml@main
+    uses: giobi/actions/.github/workflows/ssh-generate-keys.yml@main
     with:
       key_type: "ed25519"
       key_comment: "ED25519 deployment key"
