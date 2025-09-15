@@ -1,0 +1,58 @@
+---
+# Example: Using the reusable Laravel Git Pull workflow
+name: Laravel Git Pull Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: environment
+        default: 'staging'
+      branch:
+        description: "Branch to pull"
+        required: false
+        default: 'main'
+        type: string
+      skip_post_commands:
+        description: "Skip post-pull commands"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  deploy:
+    uses: giobi/actions/.github/workflows/laravel-git-pull.yml@main
+    with:
+      branch: ${{ github.event.inputs.branch }}
+      run_post_commands: ${{ !github.event.inputs.skip_post_commands }}
+      environment: ${{ github.event.inputs.environment }}
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PORT: ${{ secrets.SSH_PORT }}
+      PROJECT_PATH: ${{ secrets.PROJECT_PATH }}
+      
+  notify-deployment:
+    needs: deploy
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Deployment Results
+        run: |
+          echo "Deployment Status: ${{ needs.deploy.outputs.deployment_status }}"
+          echo "Branch Deployed: ${{ needs.deploy.outputs.branch_deployed }}"
+          echo "Post Commands Run: ${{ needs.deploy.outputs.post_commands_run }}"
+          
+      - name: Notify on Failure
+        if: needs.deploy.outputs.deployment_status == 'failure'
+        run: |
+          echo "❌ Git pull deployment failed for branch ${{ needs.deploy.outputs.branch_deployed }}"
+          exit 1
+          
+      - name: Notify on Success
+        if: needs.deploy.outputs.deployment_status == 'success'
+        run: |
+          echo "✅ Successfully pulled and deployed ${{ needs.deploy.outputs.branch_deployed }} to ${{ github.event.inputs.environment }}"
