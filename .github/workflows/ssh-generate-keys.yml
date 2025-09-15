@@ -49,7 +49,6 @@ jobs:
     permissions:
       contents: read
       actions: write
-      secrets: write
     outputs:
       private_key_name: ${{ steps.generate.outputs.private_key_name }}
       public_key_name: ${{ steps.generate.outputs.public_key_name }}
