@@ -1,4 +1,76 @@
-# Reusable Workflows
+## SSH Connection Format (USERHOST)
+
+For all SSH-related workflows in this repository, we use a unified `USERHOST` variable format that combines all SSH connection parameters into a single string:
+
+### Format
+```
+user@host.domain.com:port/path/to/project
+```
+
+### Components
+- **user** (required): SSH username
+- **host.domain.com** (required): SSH hostname or IP address
+- **:port** (optional): SSH port number (defaults to 22 if not specified)
+- **/path/to/project** (optional): Project path on the server (defaults to /var/www/html if not specified)
+
+### Examples
+
+#### Basic format (user and host only):
+```
+deployuser@myserver.com
+```
+- User: `deployuser`
+- Host: `myserver.com`
+- Port: `22` (default)
+- Path: `/var/www/html` (default)
+
+#### With custom port:
+```
+deployuser@myserver.com:2222
+```
+- User: `deployuser`
+- Host: `myserver.com`
+- Port: `2222`
+- Path: `/var/www/html` (default)
+
+#### With custom path:
+```
+deployuser@myserver.com/var/www/myapp
+```
+- User: `deployuser`
+- Host: `myserver.com`
+- Port: `22` (default)
+- Path: `/var/www/myapp`
+
+#### Full format with port and path:
+```
+deployuser@myserver.com:2222/var/www/myapp
+```
+- User: `deployuser`
+- Host: `myserver.com`
+- Port: `2222`
+- Path: `/var/www/myapp`
+
+#### Using IP address:
+```
+deploy@192.168.1.100:22/home/user/project
+```
+- User: `deploy`
+- Host: `192.168.1.100`
+- Port: `22`
+- Path: `/home/user/project`
+
+### Usage in Workflows
+
+When using SSH-related workflows, provide the USERHOST as a secret:
+
+```yaml
+secrets:
+  SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+  USERHOST: ${{ secrets.USERHOST }}
+```
+
+## Reusable Workflows
 
 This directory contains reusable GitHub Actions workflows that can be called from other repositories.
 
@@ -95,10 +167,7 @@ jobs:
       environment: ${{ github.event.inputs.environment }}
     secrets:
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-      SSH_HOST: ${{ secrets.SSH_HOST }}
-      SSH_USER: ${{ secrets.SSH_USER }}
-      SSH_PORT: ${{ secrets.SSH_PORT }}
-      PROJECT_PATH: ${{ secrets.PROJECT_PATH }}
+      USERHOST: ${{ secrets.USERHOST }}
 ```
 
 **Inputs:**
@@ -108,10 +177,7 @@ jobs:
 
 **Secrets:**
 - `SSH_PRIVATE_KEY` (required): SSH private key for server access
-- `SSH_HOST` (required): SSH host/server address
-- `SSH_USER` (required): SSH username
-- `SSH_PORT` (optional): SSH port (defaults to 22)
-- `PROJECT_PATH` (optional): Path to project directory (defaults to /var/www/html)
+- `USERHOST` (required): SSH connection string in format: user@host.domain.com:port/path/to/project (port and path optional)
 
 **Outputs:**
 - `deployment_status`: Status of the deployment (success/failure)

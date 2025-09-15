@@ -21,18 +21,9 @@ name: Reusable Laravel Git Pull
       SSH_PRIVATE_KEY:
         description: "SSH private key for server access"
         required: true
-      SSH_HOST:
-        description: "SSH host/server address"
+      USERHOST:
+        description: "SSH connection string in format: user@host.domain.com:port/path/to/project (port and path optional)"
         required: true
-      SSH_USER:
-        description: "SSH username"
-        required: true
-      SSH_PORT:
-        description: "SSH port (optional, defaults to 22)"
-        required: false
-      PROJECT_PATH:
-        description: "Path to project directory on server"
-        required: false
     outputs:
       deployment_status:
         description: "Status of the deployment (success/failure)"
@@ -54,14 +45,60 @@ jobs:
       post_commands_run: ${{ steps.deploy.outputs.post_commands_run }}
 
     steps:
+      - name: Parse USERHOST variable
+        id: parse_userhost
+        run: |
+          # Parse USERHOST format: user@host.domain.com:port/path/to/project
+          USERHOST="${{ secrets.USERHOST }}"
+          echo "Parsing USERHOST: $USERHOST"
+          
+          # Extract user@host part (everything before optional :port or /path)
+          USER_HOST=$(echo "$USERHOST" | sed 's/:.*$//' | sed 's/\/.*$//')
+          
+          # Extract user and host
+          SSH_USER=$(echo "$USER_HOST" | cut -d'@' -f1)
+          SSH_HOST=$(echo "$USER_HOST" | cut -d'@' -f2)
+          
+          # Extract port (optional, defaults to 22)
+          if echo "$USERHOST" | grep -q ':'; then
+            # Port is specified
+            PORT_PATH=$(echo "$USERHOST" | sed 's/^[^:]*://')
+            if echo "$PORT_PATH" | grep -q '/'; then
+              SSH_PORT=$(echo "$PORT_PATH" | cut -d'/' -f1)
+            else
+              SSH_PORT="$PORT_PATH"
+            fi
+          else
+            SSH_PORT="22"
+          fi
+          
+          # Extract project path (optional, defaults to /var/www/html)
+          if echo "$USERHOST" | grep -q '/'; then
+            PROJECT_PATH="/$(echo "$USERHOST" | sed 's/^[^/]*\///')"
+          else
+            PROJECT_PATH="/var/www/html"
+          fi
+          
+          echo "Parsed components:"
+          echo "SSH_USER: $SSH_USER"
+          echo "SSH_HOST: $SSH_HOST" 
+          echo "SSH_PORT: $SSH_PORT"
+          echo "PROJECT_PATH: $PROJECT_PATH"
+          
+          # Export as outputs
+          echo "ssh_user=$SSH_USER" >> $GITHUB_OUTPUT
+          echo "ssh_host=$SSH_HOST" >> $GITHUB_OUTPUT
+          echo "ssh_port=$SSH_PORT" >> $GITHUB_OUTPUT
+          echo "project_path=$PROJECT_PATH" >> $GITHUB_OUTPUT
+
       - name: Deploy to Server via SSH
         id: deploy
         uses: appleboy/ssh-action@master
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
+          host: ${{ steps.parse_userhost.outputs.ssh_host }}
+          username: ${{ steps.parse_userhost.outputs.ssh_user }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
+          port: ${{ steps.parse_userhost.outputs.ssh_port }}
           script: |
             set -e  # Exit on any error
             
@@ -69,7 +106,7 @@ jobs:
             DEPLOYMENT_STATUS="failure"
             
             # Navigate to project directory
-            PROJECT_PATH="${{ secrets.PROJECT_PATH || '/var/www/html' }}"
+            PROJECT_PATH="${{ steps.parse_userhost.outputs.project_path }}"
             echo "Navigating to project directory: $PROJECT_PATH"
             cd "$PROJECT_PATH"
 
