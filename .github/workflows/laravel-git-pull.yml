@@ -1,7 +1,7 @@
-name: 🔧 Dev Server Git Pull
+name: Reusable Laravel Git Pull
 
 "on":
-  workflow_dispatch:
+  workflow_call:
     inputs:
       branch:
         description: "Branch to pull (default: main)"
@@ -14,29 +14,101 @@ name: 🔧 Dev Server Git Pull
         default: true
         type: boolean
       environment:
-        type: environment
-        description: Select target environment
+        description: "Target environment for deployment"
         required: true
-  push:
-    branches:
-      - main
+        type: string
+    secrets:
+      SSH_PRIVATE_KEY:
+        description: "SSH private key for server access"
+        required: true
+      USERHOST:
+        description: "SSH connection string in format: user@host.domain.com:port/path/to/project (port and path optional)"
+        required: true
+    outputs:
+      deployment_status:
+        description: "Status of the deployment (success/failure)"
+        value: ${{ jobs.deploy-dev.outputs.deployment_status }}
+      branch_deployed:
+        description: "Branch that was deployed"
+        value: ${{ jobs.deploy-dev.outputs.branch_deployed }}
+      post_commands_run:
+        description: "Whether post-deployment commands were executed"
+        value: ${{ jobs.deploy-dev.outputs.post_commands_run }}
 
 jobs:
   deploy-dev:
     runs-on: ubuntu-latest
-    environment: ${{inputs.environment}}
+    environment: ${{ inputs.environment }}
+    outputs:
+      deployment_status: ${{ steps.deploy.outputs.deployment_status }}
+      branch_deployed: ${{ steps.deploy.outputs.branch_deployed }}
+      post_commands_run: ${{ steps.deploy.outputs.post_commands_run }}
 
     steps:
-      - name: Deploy to Dev Server via SSH
+      - name: Parse USERHOST variable
+        id: parse_userhost
+        run: |
+          # Parse USERHOST format: user@host.domain.com:port/path/to/project
+          USERHOST="${{ secrets.USERHOST }}"
+          echo "Parsing USERHOST: $USERHOST"
+          
+          # Extract user@host part (everything before optional :port or /path)
+          USER_HOST=$(echo "$USERHOST" | sed 's/:.*$//' | sed 's/\/.*$//')
+          
+          # Extract user and host
+          SSH_USER=$(echo "$USER_HOST" | cut -d'@' -f1)
+          SSH_HOST=$(echo "$USER_HOST" | cut -d'@' -f2)
+          
+          # Extract port (optional, defaults to 22)
+          if echo "$USERHOST" | grep -q ':'; then
+            # Port is specified
+            PORT_PATH=$(echo "$USERHOST" | sed 's/^[^:]*://')
+            if echo "$PORT_PATH" | grep -q '/'; then
+              SSH_PORT=$(echo "$PORT_PATH" | cut -d'/' -f1)
+            else
+              SSH_PORT="$PORT_PATH"
+            fi
+          else
+            SSH_PORT="22"
+          fi
+          
+          # Extract project path (optional, defaults to /var/www/html)
+          if echo "$USERHOST" | grep -q '/'; then
+            PROJECT_PATH="/$(echo "$USERHOST" | sed 's/^[^/]*\///')"
+          else
+            PROJECT_PATH="/var/www/html"
+          fi
+          
+          echo "Parsed components:"
+          echo "SSH_USER: $SSH_USER"
+          echo "SSH_HOST: $SSH_HOST" 
+          echo "SSH_PORT: $SSH_PORT"
+          echo "PROJECT_PATH: $PROJECT_PATH"
+          
+          # Export as outputs
+          echo "ssh_user=$SSH_USER" >> $GITHUB_OUTPUT
+          echo "ssh_host=$SSH_HOST" >> $GITHUB_OUTPUT
+          echo "ssh_port=$SSH_PORT" >> $GITHUB_OUTPUT
+          echo "project_path=$PROJECT_PATH" >> $GITHUB_OUTPUT
+
+      - name: Deploy to Server via SSH
+        id: deploy
         uses: appleboy/ssh-action@master
         with:
-          host: ${{ vars.HOST }}
-          username: ${{ vars.USER }}
-          key: ${{ secrets.SSHPRIVATE }}
-          port: ${{ vars.SSH_PORT || 22 }}
+          host: ${{ steps.parse_userhost.outputs.ssh_host }}
+          username: ${{ steps.parse_userhost.outputs.ssh_user }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ steps.parse_userhost.outputs.ssh_port }}
           script: |
+            set -e  # Exit on any error
+            
+            # Set deployment status to failed initially
+            DEPLOYMENT_STATUS="failure"
+            
             # Navigate to project directory
-            cd ${{ vars.PATH || '/var/www/html' }}
+            PROJECT_PATH="${{ steps.parse_userhost.outputs.project_path }}"
+            echo "Navigating to project directory: $PROJECT_PATH"
+            cd "$PROJECT_PATH"
 
             # Show current status
             echo "=== Current Git Status ==="
@@ -48,9 +120,10 @@ jobs:
             git fetch origin
 
             # Switch to target branch and pull
-            echo "Switching to branch: ${{ github.event.inputs.branch }}"
-            git checkout ${{ github.event.inputs.branch }}
-            git pull origin ${{ github.event.inputs.branch }}
+            BRANCH="${{ inputs.branch }}"
+            echo "Switching to branch: $BRANCH"
+            git checkout "$BRANCH"
+            git pull origin "$BRANCH"
 
             # Show what changed
             echo "=== Latest Commits ==="
@@ -58,8 +131,10 @@ jobs:
             echo "====================="
 
             # Run post-pull commands if requested
-            if [ "${{ github.event.inputs.run_post_commands }}" = "true" ]; then
+            POST_COMMANDS_RUN="false"
+            if [ "${{ inputs.run_post_commands }}" = "true" ]; then
               echo "Running post-pull commands..."
+              POST_COMMANDS_RUN="true"
 
               # Install/update composer dependencies
               if [ -f "composer.json" ]; then
@@ -83,4 +158,22 @@ jobs:
               echo "Skipping post-pull commands."
             fi
 
+            # If we get here, deployment was successful
+            DEPLOYMENT_STATUS="success"
+            
             echo "=== Deployment completed successfully! ==="
+            
+            # Export outputs for GitHub Actions
+            echo "deployment_status=$DEPLOYMENT_STATUS" >> $GITHUB_OUTPUT
+            echo "branch_deployed=$BRANCH" >> $GITHUB_OUTPUT
+            echo "post_commands_run=$POST_COMMANDS_RUN" >> $GITHUB_OUTPUT
+            
+      - name: Set step outputs
+        if: always()
+        run: |
+          # Ensure outputs are set even if the SSH action fails
+          if [ -z "${{ steps.deploy.outputs.deployment_status }}" ]; then
+            echo "deployment_status=failure" >> $GITHUB_OUTPUT
+            echo "branch_deployed=${{ inputs.branch }}" >> $GITHUB_OUTPUT
+            echo "post_commands_run=false" >> $GITHUB_OUTPUT
+          fi
