@@ -71,7 +71,54 @@ jobs:
 - `duplicates_closed`: Number of duplicate issues that were closed
 - `current_issue_closed`: Whether the current issue was closed as a duplicate
 
-### 3. Laravel Git Pull Deployment (`laravel-deploy.yml`)
+### 3. Laravel Git Pull (`laravel-git-pull.yml`)
+
+Deploys Laravel applications by pulling code from Git and running optimization commands via SSH.
+
+**Usage:**
+```yaml
+name: Deploy Laravel via Git Pull
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: environment
+
+jobs:
+  deploy:
+    uses: giobi/actions/.github/workflows/laravel-git-pull.yml@main
+    with:
+      branch: "main"
+      run_post_commands: true
+      environment: ${{ github.event.inputs.environment }}
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PORT: ${{ secrets.SSH_PORT }}
+      PROJECT_PATH: ${{ secrets.PROJECT_PATH }}
+```
+
+**Inputs:**
+- `branch` (optional): Branch to pull (default: "main")
+- `run_post_commands` (optional): Run post-pull commands (default: true)
+- `environment` (required): Target environment for deployment
+
+**Secrets:**
+- `SSH_PRIVATE_KEY` (required): SSH private key for server access
+- `SSH_HOST` (required): SSH host/server address
+- `SSH_USER` (required): SSH username
+- `SSH_PORT` (optional): SSH port (defaults to 22)
+- `PROJECT_PATH` (optional): Path to project directory (defaults to /var/www/html)
+
+**Outputs:**
+- `deployment_status`: Status of the deployment (success/failure)
+- `branch_deployed`: Branch that was deployed
+- `post_commands_run`: Whether post-deployment commands were executed
+
+### 4. Laravel Git Pull Deployment (`laravel-deploy.yml`)
 
 Deploys Laravel applications by pulling code from Git and running optimization commands.
 
@@ -119,7 +166,7 @@ jobs:
 - `post_commands_run`: Whether post-deployment commands were executed
 
 
-### 4. Telegram Notification (`telegram-notification.yml`)
+### 5. Telegram Notification (`telegram-notification.yml`)
 
 Sends notifications to Telegram using the Bot API. Requires TELEGRAM_SECRET and TELEGRAM_CHAT secrets.
 
@@ -163,7 +210,7 @@ jobs:
 - `response`: Full API response from Telegram
 
 
-### 4. ntfy.sh Notifications (`notification-ntfy.yml`)
+### 6. ntfy.sh Notifications (`notification-ntfy.yml`)
 
 Send notifications to ntfy.sh topics for real-time alerts and updates.
 
@@ -208,7 +255,7 @@ jobs:
 - `topic_used`: Topic that was used for the notification
 
 
-### 5. PR Branch Cleanup (`pr-branch-cleanup.yml`)
+### 7. PR Branch Cleanup (`pr-branch-cleanup.yml`)
 
 Automatically deletes branches from old pull requests to keep the repository clean.
 
@@ -256,7 +303,7 @@ jobs:
 - `branches_skipped`: Number of branches skipped (protected or not found)
 - `error_count`: Number of errors encountered
 
-### 6. Generate SSH Key Pair (`generate-ssh-keypair.yml`)
+### 8. Generate SSH Key Pair (`generate-ssh-keypair.yml`)
 
 Generates an SSH key pair and automatically stores the private key in repository secrets and the public key in repository variables.
 
@@ -299,7 +346,7 @@ jobs:
 - `key_fingerprint`: SSH key fingerprint for identification
 - `success`: Whether the key generation and storage was successful
 
-### 7. Documentation Enforcement (`documentation-enforcement.yml`)
+### 9. Documentation Enforcement (`documentation-enforcement.yml`)
 
 **Inputs:**
 - `days` (optional): Number of days to look back for closed issues (default: 14)
