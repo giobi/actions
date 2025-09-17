@@ -369,7 +369,55 @@ jobs:
 - `branches_skipped`: Number of branches skipped (protected or not found)
 - `error_count`: Number of errors encountered
 
-### 8. Generate SSH Key Pair (`generate-ssh-keypair.yml`)
+### 8. Generic Git Pull (`git-pull.yml`)
+
+Generic reusable workflow for deploying any project via SSH git pull. Unlike the Laravel-specific version, this workflow supports custom post-commands for any type of project.
+
+**Usage:**
+```yaml
+name: Deploy via Git Pull
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: environment
+
+jobs:
+  deploy:
+    uses: giobi/actions/.github/workflows/git-pull.yml@main
+    with:
+      branch: "main"
+      run_post_commands: true
+      post_commands: |
+        npm install --production
+        npm run build
+        pm2 restart app
+      environment: ${{ github.event.inputs.environment }}
+    secrets:
+      SSHPRIVATE: ${{ secrets.SSH_PRIVATE_KEY }}
+      USERHOST: ${{ secrets.USERHOST }}
+      SSHPUBLIC: ${{ secrets.SSH_PUBLIC_KEY }}
+```
+
+**Inputs:**
+- `branch` (optional): Branch to pull (default: "main")
+- `run_post_commands` (optional): Run post-pull commands (default: false)
+- `post_commands` (optional): Custom post-pull commands to run (separated by newlines)
+- `environment` (required): Target environment for deployment
+
+**Secrets:**
+- `SSHPRIVATE` (required): SSH private key for server access
+- `USERHOST` (required): SSH connection string in format: user@host.domain.com:port/path/to/project (port and path optional)
+- `SSHPUBLIC` (optional): SSH public key (for verification purposes)
+
+**Outputs:**
+- `deployment_status`: Status of the deployment (success/failure)
+- `branch_deployed`: Branch that was deployed
+- `post_commands_run`: Whether post-deployment commands were executed
+
+### 9. Generate SSH Key Pair (`generate-ssh-keypair.yml`)
 
 Generates an SSH key pair and automatically stores the private key in repository secrets and the public key in repository variables.
 
