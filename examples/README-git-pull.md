@@ -163,10 +163,48 @@ jobs:
    - Verify required tools are installed on server
    - Check file permissions
 
+4. **USERHOST Parsing Errors**
+   - **Empty USERHOST**: Ensure the secret is set in repository settings
+   - **Invalid format**: Must contain `@` symbol (user@host format)
+   - **Missing components**: Check that user and host are properly specified
+   
+   **Valid USERHOST formats:**
+   ```
+   deployuser@myserver.com                              # Basic
+   deployuser@myserver.com:2222                         # With port
+   deployuser@myserver.com/var/www/myproject           # With path
+   deployuser@myserver.com:2222/var/www/myproject      # Full format
+   master_user@209.38.212.16/complex/path/structure/   # Complex paths
+   ```
+
 ### Debug Mode
 Enable debug output by adding to post_commands:
 ```bash
 set -x  # Enable debug output
+```
+
+### Verifying USERHOST Secret
+
+If you see parsing errors with empty components, check:
+
+1. **Repository Secrets**: Go to Settings > Secrets and variables > Actions
+2. **Secret Name**: Must be exactly `USERHOST` (case-sensitive)
+3. **Secret Value**: Should not be empty and must follow the format `user@host:port/path`
+
+Example workflow to test USERHOST parsing:
+```yaml
+jobs:
+  test-userhost:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test USERHOST parsing
+        run: |
+          USERHOST="${{ secrets.USERHOST }}"
+          if [ -z "$USERHOST" ]; then
+            echo "❌ USERHOST secret is empty!"
+            exit 1
+          fi
+          echo "✅ USERHOST secret is set: $USERHOST"
 ```
 
 ## Integration Examples

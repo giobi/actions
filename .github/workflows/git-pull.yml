@@ -60,21 +60,63 @@ jobs:
           USERHOST="${{ secrets.USERHOST }}"
           echo "Parsing USERHOST: $USERHOST"
           
+          # Validate that USERHOST is not empty
+          if [ -z "$USERHOST" ]; then
+            echo "❌ ERROR: USERHOST secret is empty or not provided!"
+            echo "Please ensure the USERHOST secret is set in your repository."
+            echo "Expected format: user@host.domain.com:port/path/to/project"
+            echo "Examples:"
+            echo "  - Basic: deployuser@myserver.com"
+            echo "  - With port: deployuser@myserver.com:2222"
+            echo "  - With path: deployuser@myserver.com/var/www/myproject"
+            echo "  - Full: deployuser@myserver.com:2222/var/www/myproject"
+            exit 1
+          fi
+          
+          # Validate that USERHOST contains @
+          if ! echo "$USERHOST" | grep -q '@'; then
+            echo "❌ ERROR: USERHOST format is invalid - missing @ symbol!"
+            echo "Current value: $USERHOST"
+            echo "Expected format: user@host.domain.com:port/path/to/project"
+            exit 1
+          fi
+          
           # Extract user@host part (everything before optional :port or /path)
           USER_HOST=$(echo "$USERHOST" | sed 's/:.*$//' | sed 's/\/.*$//')
           
           # Extract user and host
           SSH_USER=$(echo "$USER_HOST" | cut -d'@' -f1)
-          SSH_HOST=$(echo "$USER_HOST" | cut -d'@' -f2)
+          SSH_HOST=$(echo "$USER_HOST" | cut -d'@' -f2-)
+          
+          # Validate extracted components
+          if [ -z "$SSH_USER" ]; then
+            echo "❌ ERROR: Could not extract SSH_USER from USERHOST!"
+            echo "Current USERHOST: $USERHOST"
+            exit 1
+          fi
+          
+          if [ -z "$SSH_HOST" ]; then
+            echo "❌ ERROR: Could not extract SSH_HOST from USERHOST!"
+            echo "Current USERHOST: $USERHOST"
+            exit 1
+          fi
           
           # Extract port (optional, defaults to 22)
           if echo "$USERHOST" | grep -q ':'; then
-            # Port is specified
+            # Port is specified - extract everything after first colon
             PORT_PATH=$(echo "$USERHOST" | sed 's/^[^:]*://')
             if echo "$PORT_PATH" | grep -q '/'; then
+              # Path exists after port, extract port part only
               SSH_PORT=$(echo "$PORT_PATH" | cut -d'/' -f1)
             else
+              # No path after port, entire remainder is port
               SSH_PORT="$PORT_PATH"
+            fi
+            
+            # Validate port is numeric
+            if ! echo "$SSH_PORT" | grep -qE '^[0-9]+$'; then
+              echo "⚠️  WARNING: Extracted port '$SSH_PORT' is not numeric, defaulting to 22"
+              SSH_PORT="22"
             fi
           else
             SSH_PORT="22"
@@ -83,11 +125,15 @@ jobs:
           # Extract project path (optional, defaults to /var/www/html)
           if echo "$USERHOST" | grep -q '/'; then
             PROJECT_PATH="/$(echo "$USERHOST" | sed 's/^[^/]*\///')"
+            # Remove trailing slash if present (but keep if it's just root "/")
+            if [ "$PROJECT_PATH" != "/" ]; then
+              PROJECT_PATH=$(echo "$PROJECT_PATH" | sed 's/\/$//')
+            fi
           else
             PROJECT_PATH="/var/www/html"
           fi
           
-          echo "Parsed components:"
+          echo "✅ Successfully parsed USERHOST components:"
           echo "SSH_USER: $SSH_USER"
           echo "SSH_HOST: $SSH_HOST" 
           echo "SSH_PORT: $SSH_PORT"
