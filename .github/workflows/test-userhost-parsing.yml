@@ -1,0 +1,114 @@
+---
+# Test workflow to validate USERHOST secret parsing
+# Use this to debug USERHOST format issues
+# 
+# To run: Go to Actions tab > "Test USERHOST Parsing" > Run workflow
+
+name: Test USERHOST Parsing
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_userhost:
+        description: "Test USERHOST value (leave empty to test repository secret)"
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  test-parsing:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Test USERHOST Parsing
+        run: |
+          # Use input value or fallback to repository secret
+          if [ -n "${{ github.event.inputs.test_userhost }}" ]; then
+            USERHOST="${{ github.event.inputs.test_userhost }}"
+            echo "🧪 Testing with provided input value"
+          else
+            USERHOST="${{ secrets.USERHOST }}"
+            echo "🔍 Testing with repository USERHOST secret"
+          fi
+          
+          echo "Input USERHOST: '$USERHOST'"
+          echo "============================================"
+          
+          # Validate that USERHOST is not empty
+          if [ -z "$USERHOST" ]; then
+            echo "❌ ERROR: USERHOST is empty or not provided!"
+            echo ""
+            echo "📋 To fix this issue:"
+            echo "1. Go to repository Settings > Secrets and variables > Actions"
+            echo "2. Create a new repository secret named 'USERHOST'"
+            echo "3. Set the value in format: user@host.domain.com:port/path/to/project"
+            echo ""
+            echo "📖 Example values:"
+            echo "  - deployuser@myserver.com"
+            echo "  - deployuser@myserver.com:2222"
+            echo "  - deployuser@myserver.com/var/www/myproject"
+            echo "  - deployuser@myserver.com:2222/var/www/myproject"
+            exit 1
+          fi
+          
+          # Validate format
+          if ! echo "$USERHOST" | grep -q '@'; then
+            echo "❌ ERROR: USERHOST format is invalid - missing @ symbol!"
+            echo "Current value: $USERHOST"
+            echo "Expected format: user@host.domain.com:port/path/to/project"
+            exit 1
+          fi
+          
+          # Parse components
+          USER_HOST=$(echo "$USERHOST" | sed 's/:.*$//' | sed 's/\/.*$//')
+          SSH_USER=$(echo "$USER_HOST" | cut -d'@' -f1)
+          SSH_HOST=$(echo "$USER_HOST" | cut -d'@' -f2-)
+          
+          if [ -z "$SSH_USER" ] || [ -z "$SSH_HOST" ]; then
+            echo "❌ ERROR: Could not extract user or host components!"
+            echo "USER_HOST: $USER_HOST"
+            echo "SSH_USER: $SSH_USER"
+            echo "SSH_HOST: $SSH_HOST"
+            exit 1
+          fi
+          
+          # Extract port
+          if echo "$USERHOST" | grep -q ':'; then
+            PORT_PATH=$(echo "$USERHOST" | sed 's/^[^:]*://')
+            if echo "$PORT_PATH" | grep -q '/'; then
+              SSH_PORT=$(echo "$PORT_PATH" | cut -d'/' -f1)
+            else
+              SSH_PORT="$PORT_PATH"
+            fi
+            
+            if ! echo "$SSH_PORT" | grep -qE '^[0-9]+$'; then
+              echo "⚠️  WARNING: Port '$SSH_PORT' is not numeric, will default to 22"
+              SSH_PORT="22"
+            fi
+          else
+            SSH_PORT="22"
+          fi
+          
+          # Extract path
+          if echo "$USERHOST" | grep -q '/'; then
+            PROJECT_PATH="/$(echo "$USERHOST" | sed 's/^[^/]*\///')"
+            if [ "$PROJECT_PATH" != "/" ]; then
+              PROJECT_PATH=$(echo "$PROJECT_PATH" | sed 's/\/$//')
+            fi
+          else
+            PROJECT_PATH="/var/www/html"
+          fi
+          
+          echo "✅ USERHOST parsing successful!"
+          echo ""
+          echo "📊 Parsed components:"
+          echo "  SSH_USER: '$SSH_USER'"
+          echo "  SSH_HOST: '$SSH_HOST'"
+          echo "  SSH_PORT: '$SSH_PORT'"
+          echo "  PROJECT_PATH: '$PROJECT_PATH'"
+          echo ""
+          echo "🔧 This will result in SSH connection:"
+          echo "  Command: ssh -p $SSH_PORT $SSH_USER@$SSH_HOST"
+          echo "  Working directory: $PROJECT_PATH"
+          echo ""
+          echo "✨ Your USERHOST format is valid and ready for use!"
